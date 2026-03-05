@@ -1,0 +1,673 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                         String                      @id @default(uuid())
+  name                       String?
+  email                      String?                     @unique
+  phone                      String?                     @unique
+  passwordHash               String
+  referralCode               String?                     @unique
+  referredById               String?
+  role                       RoleType                    @default(USER)
+  status                     UserStatus                  @default(ACTIVE)
+  kycStatus                  KycStatus                   @default(PENDING)
+  isVerified                 Boolean                     @default(false)
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+  totalReferralCount         Int                         @default(0)
+  paidReferralCount          Int                         @default(0)
+  freeReferralCount          Int                         @default(0)
+  depositWalletAddress       String?                     @unique
+  depositWalletCreatedAt     DateTime?
+  depositWalletPrivateKey    String?
+  salaryQualifiedAt          DateTime?
+  currentSalaryLevel         Int?                        @default(0)
+  currentLevelStartedAt      DateTime?
+  currencyRateLogs           CurrencyRateLog[]
+  deposits                   Deposit[]
+  depositTransactions        DepositWalletTransaction[]
+  investments                Investment[]
+  kycDocuments               KycDocument[]
+  loginLogs                  LoginLog[]
+  notifications              Notification[]
+  pendingDepositTransactions PendingDepositTransaction[]
+  referralIncomeFrom         ReferralIncome[]            @relation("ref_from")
+  referralIncomeTo           ReferralIncome[]            @relation("ref_to")
+  salaryLogs                 SalaryLog[]
+  supportTickets             SupportTicket[]
+  transactions               Transaction[]
+  referredBy                 User?                       @relation("Referrals", fields: [referredById], references: [id])
+  referrals                  User[]                      @relation("Referrals")
+  userBankAccounts           UserBankAccount[]
+  wallets                    Wallet[]
+  withdrawals                Withdrawal[]
+
+  @@index([referralCode])
+  @@index([depositWalletAddress])
+}
+
+model KycDocument {
+  id         String    @id @default(uuid())
+  userId     String
+  docType    String
+  fileUrl    String
+  selfieUrl  String?
+  remarks    String?
+  status     KycStatus @default(PENDING)
+  reviewedBy String?
+  reviewedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  user       User      @relation(fields: [userId], references: [id])
+}
+
+model Wallet {
+  id           String        @id @default(uuid())
+  userId       String
+  type         WalletType
+  balance      Decimal       @default(0) @db.Decimal(65, 18)
+  pending      Decimal       @default(0) @db.Decimal(65, 18)
+  locked       Boolean       @default(false)
+  currency     String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  transactions Transaction[] @relation("wallet_transactions")
+  user         User          @relation(fields: [userId], references: [id])
+
+  @@unique([userId, type])
+  @@index([userId, type])
+}
+
+model Transaction {
+  id          String            @id @default(uuid())
+  userId      String
+  walletId    String?
+  type        TransactionType
+  amount      Decimal           @db.Decimal(65, 18)
+  currency    String
+  status      TransactionStatus @default(PENDING)
+  txId        String?
+  meta        Json?
+  description String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  user        User              @relation(fields: [userId], references: [id])
+  wallet      Wallet?           @relation("wallet_transactions", fields: [walletId], references: [id])
+
+  @@index([userId, type, status])
+}
+
+model Plan {
+  id                       String        @id @default(uuid())
+  name                     String
+  description              String?
+  amount                   Decimal       @default(0) @db.Decimal(65, 18)
+  roiAmount                Decimal       @default(0) @db.Decimal(65, 18)
+  durationTimes            Int           @default(0)
+  frequency                PlanFrequency
+  frequencyDay             Int?
+  frequencyDays            Json?
+  isActive                 Boolean       @default(true)
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
+  boostIncome              Decimal?      @db.Decimal(65, 18)
+  freeDirectReferralIncome Decimal?      @db.Decimal(65, 18)
+  paidDirectReferralIncome Decimal?      @db.Decimal(65, 18)
+  authKeys                 AuthKey[]
+  investments              Investment[]
+}
+
+model AuthKey {
+  id            String      @id @default(uuid())
+  code          String      @unique
+  planId        String
+  generatedBy   String
+  distributedTo String?
+  usedBy        String?
+  usedAt        DateTime?
+  status        String      @default("ACTIVE")
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  plan          Plan        @relation(fields: [planId], references: [id])
+  investment    Investment?
+
+  @@index([code, status])
+  @@index([planId])
+  @@index([distributedTo])
+  @@map("Epin")
+}
+
+model Investment {
+  id                 String           @id @default(uuid())
+  userId             String
+  planId             String?
+  amount             Decimal          @db.Decimal(65, 18)
+  breakdownAmt       Decimal?         @db.Decimal(65, 18)
+  deductionPct       Int?
+  refundTimelineDays Int?             // Days from start during which user can request breakdown
+  startDate          DateTime?
+  endDate            DateTime?
+  status             InvestmentStatus @default(PENDING)
+  purchaseMethod     PurchaseMethod?
+  authKeyId          String?          @unique @map("epinId")
+  roiEarned          Decimal          @default(0) @db.Decimal(65, 18)
+  adminRemarks       String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  authKey            AuthKey?         @relation(fields: [authKeyId], references: [id])
+  plan               Plan?            @relation(fields: [planId], references: [id])
+  user               User             @relation(fields: [userId], references: [id])
+  refunds            RefundRequest[]
+
+  @@index([userId, planId, status])
+  @@index([authKeyId])
+}
+
+model RefundRequest {
+  id           String            @id @default(uuid())
+  investmentId String
+  requestedBy  String
+  amount       Decimal           @db.Decimal(65, 18)
+  status       TransactionStatus @default(PENDING)
+  adminRemarks String?
+  processedBy  String?
+  processedAt  DateTime?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  investment   Investment        @relation(fields: [investmentId], references: [id])
+}
+
+model ReferralIncome {
+  id         String   @id @default(uuid())
+  fromUserId String
+  toUserId   String
+  level      Int
+  amount     Decimal  @db.Decimal(65, 18)
+  createdAt  DateTime @default(now())
+  fromUser   User     @relation("ref_from", fields: [fromUserId], references: [id])
+  toUser     User     @relation("ref_to", fields: [toUserId], references: [id])
+}
+
+model SalaryLog {
+  id               String   @id @default(uuid())
+  userId           String
+  amount           Decimal  @db.Decimal(65, 18)
+  periodFrom       DateTime
+  periodTo         DateTime
+  remarks          String?
+  createdAt        DateTime @default(now())
+  level            Int?     @default(1)
+  turnoverAchieved Decimal? @default(0) @db.Decimal(65, 18)
+  user             User     @relation(fields: [userId], references: [id])
+}
+
+model SalaryConfig {
+  id                           String         @id @default(uuid())
+  userType                     SalaryUserType @unique
+  freeReferralCount            Int            @default(0)
+  paidReferralCount            Int            @default(0)
+  createdAt                    DateTime       @default(now())
+  updatedAt                    DateTime       @updatedAt
+  qualificationTimeLimitHours  Int?           @default(72) @map("qualificationHours")
+  levels                       SalaryLevel[]
+}
+
+model AdminPoolTransaction {
+  id              String            @id @default(uuid())
+  type            String            // 'WITHDRAW' or 'DEPOSIT'
+  amount          Decimal           @db.Decimal(65, 18)
+  address         String?           // Withdrawal address (for withdrawals)
+  txHash          String?           // Blockchain transaction hash
+  blockNumber     Int?              // Block number
+  adminId         String            // Admin who performed the action
+  adminRemarks    String?
+  status          TransactionStatus @default(PENDING)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([type, status])
+  @@index([createdAt])
+}
+
+model SalaryLevel {
+  id                 String       @id @default(uuid())
+  configId           String
+  levelOrder         Int
+  days               Int
+  turnoverAmount     Decimal      @db.Decimal(65, 18)
+  salaryIncomeAmount Decimal      @db.Decimal(65, 18)
+  salaryPaymentTimes Int
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  config             SalaryConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  @@unique([configId, levelOrder])
+  @@index([configId])
+}
+
+model BankAccount {
+  id              String            @id @default(uuid())
+  accountName     String
+  accountNumber   String
+  ifscCode        String
+  bankName        String
+  branchName      String?
+  upiId           String?
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  assignedUserIds String[]          @default([])
+  visibilityType  AccountVisibility @default(ALL_USERS)
+  deposits        Deposit[]
+}
+
+model UpiAccount {
+  id              String            @id @default(uuid())
+  displayName     String
+  upiId           String
+  qrCodeUrl       String?
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  assignedUserIds String[]          @default([])
+  visibilityType  AccountVisibility @default(ALL_USERS)
+  deposits        Deposit[]
+}
+
+model Deposit {
+  id             String            @id @default(uuid())
+  userId         String
+  amount         Decimal           @db.Decimal(65, 18)
+  currency       String
+  method         DepositMethod
+  bankAccountId  String?
+  proofUrl       String?
+  txId           String?
+  status         TransactionStatus @default(PENDING)
+  rejectionCount Int               @default(0)
+  approvedBy     String?
+  approvedAt     DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  paymentMethod  String?
+  upiAccountId   String?
+  platformFee    Decimal?          @db.Decimal(65, 18)
+  network        String?
+  bankAccount    BankAccount?      @relation(fields: [bankAccountId], references: [id])
+  upiAccount     UpiAccount?       @relation(fields: [upiAccountId], references: [id])
+  user           User              @relation(fields: [userId], references: [id])
+
+  @@index([userId, status])
+  @@index([bankAccountId])
+}
+
+model Withdrawal {
+  id          String            @id @default(uuid())
+  userId      String
+  amount      Decimal           @db.Decimal(65, 18)
+  currency    String
+  method      WithdrawalMethod
+  walletType  WalletType?
+  destination String?
+  txId        String?
+  status      TransactionStatus @default(PENDING)
+  approvedBy  String?
+  approvedAt  DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  bankDetails String?
+  platformFee Decimal?          @db.Decimal(65, 18)
+  network     String?
+  user        User              @relation(fields: [userId], references: [id])
+
+  @@index([userId, status])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String?
+  title     String
+  body      String
+  type      String?
+  isRead    Boolean  @default(false)
+  meta      Json?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+}
+
+model BlogCategory {
+  id        String     @id @default(uuid())
+  name      String     @unique
+  slug      String     @unique
+  color     String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  posts     BlogPost[]
+}
+
+model BlogPost {
+  id          String        @id @default(uuid())
+  title       String
+  slug        String        @unique
+  shortDesc   String?
+  content     String
+  thumbnail   String?
+  authorName  String?
+  categoryId  String?
+  isPublished Boolean       @default(false)
+  publishAt   DateTime?
+  tags        String[]
+  views       Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  category    BlogCategory? @relation(fields: [categoryId], references: [id])
+  comments    Comment[]
+}
+
+model Comment {
+  id         String   @id @default(uuid())
+  postId     String
+  userId     String?
+  author     String?
+  content    String
+  isApproved Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  post       BlogPost @relation(fields: [postId], references: [id])
+}
+
+model SupportTicket {
+  id          String   @id @default(uuid())
+  userId      String
+  subject     String
+  description String
+  status      String
+  priority    String?
+  assignedTo  String?
+  messages    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+model Setting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     Json
+  group     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WhiteLabelPartner {
+  id            String   @id @default(uuid())
+  name          String
+  domain        String?
+  apiKey        String   @unique
+  contactEmail  String?
+  commissionPct Decimal  @db.Decimal(5, 2)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model CurrencyRate {
+  id        String            @id @default(uuid())
+  pair      String
+  rate      Decimal           @db.Decimal(65, 18)
+  source    String?
+  fetchedAt DateTime          @default(now())
+  createdAt DateTime          @default(now())
+  logs      CurrencyRateLog[]
+}
+
+model CurrencyRateLog {
+  id             String       @id @default(uuid())
+  currencyRateId String
+  previousRate   Decimal?     @db.Decimal(65, 18)
+  newRate        Decimal      @db.Decimal(65, 18)
+  changedBy      String
+  source         String?
+  createdAt      DateTime     @default(now())
+  admin          User         @relation(fields: [changedBy], references: [id])
+  currencyRate   CurrencyRate @relation(fields: [currencyRateId], references: [id])
+}
+
+model StaffActivityLog {
+  id        String   @id @default(uuid())
+  staffId   String
+  action    String
+  meta      Json?
+  createdAt DateTime @default(now())
+}
+
+model OtpVerification {
+  id        String   @id @default(uuid())
+  email     String?
+  phone     String?
+  otp       String
+  type      String
+  expiresAt DateTime
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email, phone])
+  @@index([expiresAt])
+}
+
+model LoginLog {
+  id        String   @id @default(uuid())
+  userId    String
+  ipAddress String
+  userAgent String?
+  location  String?
+  device    String?
+  browser   String?
+  os        String?
+  success   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model DepositWalletTransaction {
+  id             String    @id @default(uuid())
+  userId         String
+  txHash         String    @unique
+  fromAddress    String
+  toAddress      String
+  amount         Decimal   @db.Decimal(65, 18)
+  tokenSymbol    String    @default("USDT")
+  blockNumber    BigInt
+  blockTimestamp DateTime
+  status         String    @default("CONFIRMED")
+  credited       Boolean   @default(false)
+  creditedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  network        String?
+  tokenAddress   String?
+  platformFee    Decimal?  @db.Decimal(65, 18)
+  user           User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([txHash])
+  @@index([credited])
+  @@index([blockTimestamp])
+}
+
+model PendingDepositTransaction {
+  id          String   @id @default(uuid())
+  userId      String
+  txHash      String   @unique
+  amount      Decimal  @db.Decimal(65, 18)
+  tokenSymbol String   @default("USDT")
+  network     String   @default("SEPOLIA")
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([txHash])
+  @@index([expiresAt])
+  @@index([status])
+}
+
+model UserBankAccount {
+  id            String   @id @default(uuid())
+  userId        String
+  accountName   String
+  accountNumber String
+  ifscCode      String
+  bankName      String
+  branchName    String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+enum KycStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum UserStatus {
+  ACTIVE
+  BLOCKED
+  SUSPENDED
+  DELETED
+}
+
+enum RoleType {
+  USER
+  SUPER_ADMIN
+  ADMIN
+  KYC_MANAGER
+  FINANCE
+  SUPPORT
+  DISTRIBUTOR
+  STAFF
+  WHITE_LABEL
+}
+
+enum WalletType {
+  INR
+  USDT
+  ROI
+  SALARY
+  BREAKDOWN
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAW
+  ROI_CREDIT
+  SALARY_CREDIT
+  REFERRAL
+  REFUND
+  PLAN_PURCHASE
+  PLAN_PAYOUT
+  BREAKDOWN
+  ROI_BOOST
+  DIRECT_REFERRAL
+  REDEEM_DEBIT
+  REDEEM_CREDIT
+}
+
+enum TransactionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  FAILED
+  COMPLETED
+}
+
+enum DepositMethod {
+  UPI
+  NEFT
+  IMPS
+  MANUAL
+  GATEWAY
+  MORALIS
+  BLOCKCHAIN
+}
+
+enum WithdrawalMethod {
+  UPI
+  BANK
+  TRC20
+  ERC20
+  MANUAL
+}
+
+enum PlanFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum InvestmentStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  EXPIRED
+  REJECTED
+  BREAKDOWN_REQUESTED
+  CLOSED
+}
+
+enum PurchaseMethod {
+  ADMIN_REQUEST
+  DIRECT_WALLET_INR
+  DIRECT_WALLET_USDT
+  EPIN
+  AUTH_KEY
+}
+
+enum SalaryUserType {
+  FREE
+  PAID
+}
+
+enum AccountVisibility {
+  ALL_USERS
+  KYC_VERIFIED
+  SPECIFIC_USERS
+}
+
+model CryptoPrice {
+  id        String   @id @default(uuid())
+  symbol    String   @unique
+  name      String
+  price     Decimal  @db.Decimal(65, 18)
+  change24h Decimal? @db.Decimal(10, 2)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([symbol])
+}
+
+model NetworkConfig {
+  id              String   @id @default(uuid())
+  network         String   @unique // Network identifier (SEPOLIA, ETHEREUM, BSC)
+  isActive        Boolean  @default(true)
+  withdrawEnabled Boolean  @default(false)
+  depositEnabled  Boolean  @default(true)
+  explorerApiKey  String?  // Optional API key for blockchain explorer
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([network, isActive])
+}
