@@ -18,7 +18,31 @@ const app: Application = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      connectSrc: [
+        "'self'",
+        "https://*.walletconnect.com",
+        "https://*.walletconnect.org",
+        "https://*.web3modal.com",
+        "https://*.web3modal.org",
+        "wss://*.walletconnect.com",
+        "wss://*.walletconnect.org",
+        "https://rpc.sepolia.org",
+        "https://*.infura.io",
+        "https://*.alchemy.com",
+        "*" // Allow all connects for ease of use with web3, or refine later
+      ],
+      imgSrc: ["'self'", "data:", "https:", "http:"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      frameSrc: ["'self'", "https://*.walletconnect.com", "https://*.walletconnect.org"],
+    },
+  },
+  crossOriginOpenerPolicy: false, // Disabled for Base SDK Wallet functionality
+}));
 app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5000'],
   credentials: true,
