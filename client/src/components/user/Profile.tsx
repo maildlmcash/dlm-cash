@@ -243,7 +243,7 @@ const Profile = () => {
       setBankDetailsFetched(false);
       return;
     }
-    
+
     setFetchingBankDetails(true);
     try {
       const response = await fetch(`https://ifsc.razorpay.com/${ifscCode}`);
@@ -255,10 +255,10 @@ const Profile = () => {
           branchName: data.BRANCH || '',
         }));
         setBankDetailsFetched(true);
-       
+
       } else {
         setBankDetailsFetched(false);
-       
+
       }
     } catch (error) {
       console.error('Error fetching bank details:', error);
@@ -285,13 +285,13 @@ const Profile = () => {
       if (profileResponse.success && profileResponse.data) {
         const userData = profileResponse.data as any;
         const documents = kycResponse.success && kycResponse.data ? (kycResponse.data as any[]) : [];
-        
+
         if (documents.length === 0) {
           setKycStatus('');
         } else {
           setKycStatus(userData.kycStatus || '');
         }
-        
+
         setKycFormData(prev => ({
           ...prev,
           phone: userData.phone || '',
@@ -402,21 +402,19 @@ const Profile = () => {
       if (ctx) {
         ctx.drawImage(videoRef.current, 0, 0);
         const imageDataUrl = canvas.toDataURL('image/jpeg', 0.9);
-        
+
         setCapturedImage(imageDataUrl);
         stopCamera(true);
 
-        fetch(imageDataUrl)
-          .then((res) => res.blob())
-          .then((blob) => {
+        canvas.toBlob((blob) => {
+          if (blob) {
             const file = new File([blob], 'selfie.jpg', { type: 'image/jpeg' });
             setKycFormData((prev) => ({ ...prev, selfie: file }));
             setKycErrors((prev) => ({ ...prev, selfie: '' }));
-          })
-          .catch((error) => {
-            console.error('Error converting image to file:', error);
+          } else {
             showToast.error('Error processing captured image');
-          });
+          }
+        }, 'image/jpeg', 0.9);
       }
     }
   };
@@ -452,7 +450,7 @@ const Profile = () => {
       }
 
       const panResponse = await userApi.uploadKyc(panFormData);
-      
+
       if (!panResponse.success) {
         showToast.error(panResponse.error || 'Failed to upload PAN Card');
         setSubmittingKyc(false);
@@ -470,7 +468,7 @@ const Profile = () => {
       }
 
       const additionalResponse = await userApi.uploadKyc(additionalFormData);
-      
+
       if (!additionalResponse.success) {
         showToast.error(additionalResponse.error || 'Failed to upload additional document');
         setSubmittingKyc(false);
@@ -541,11 +539,10 @@ const Profile = () => {
             transition={{ delay: 0.2 + index * 0.1 }}
             whileHover={{ y: -2 }}
             onClick={() => setActiveTab(tab)}
-            className={`px-6 py-3 font-semibold transition-all relative whitespace-nowrap ${
-              activeTab === tab
+            className={`px-6 py-3 font-semibold transition-all relative whitespace-nowrap ${activeTab === tab
                 ? 'text-blue-600'
                 : 'text-gray-600 hover:text-gray-900'
-            }`}
+              }`}
             data-tab={tab}
           >
             {tab === 'bank-accounts' ? 'Bank Accounts' : tab === 'kyc' ? 'KYC Verification' : tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -616,13 +613,12 @@ const Profile = () => {
                   <label className="block text-sm font-medium text-gray-900 mb-2">KYC Status</label>
                   <motion.div
                     whileHover={{ scale: 1.02 }}
-                    className={`px-4 py-3 rounded-xl font-semibold ${
-                      user?.kycStatus === 'APPROVED'
+                    className={`px-4 py-3 rounded-xl font-semibold ${user?.kycStatus === 'APPROVED'
                         ? 'bg-success/20 text-success border border-success/30'
                         : user?.kycStatus === 'PENDING'
-                        ? 'bg-warning/20 text-warning border border-warning/30'
-                        : 'bg-error/20 text-error border border-error/30'
-                    }`}
+                          ? 'bg-warning/20 text-warning border border-warning/30'
+                          : 'bg-error/20 text-error border border-error/30'
+                      }`}
                   >
                     {user?.kycStatus || 'PENDING'}
                   </motion.div>
@@ -749,11 +745,11 @@ const Profile = () => {
           >
             <GlassCard>
               <h2 className="text-2xl font-bold text-gray-900 mb-6">Bank Accounts</h2>
-              
+
               {/* Add Bank Account Form */}
               <div className="space-y-5 w-[30%] mb-8">
                 <h3 className="text-lg font-semibold text-gray-900">Add New Bank Account</h3>
-                
+
                 {/* KYC Warning */}
                 {user?.kycStatus !== 'APPROVED' && (
                   <motion.div
@@ -950,15 +946,14 @@ const Profile = () => {
             transition={{ duration: 0.3 }}
           >
             {/* KYC Status Banner */}
-            <GlassCard className={`mb-8 ${
-              kycStatus === 'APPROVED'
+            <GlassCard className={`mb-8 ${kycStatus === 'APPROVED'
                 ? 'bg-success/10 border-success/50'
                 : kycStatus === 'PENDING'
-                ? 'bg-warning/10 border-warning/50'
-                : kycStatus === 'REJECTED'
-                ? 'bg-error/10 border-error/50'
-                : 'border-white/10'
-            }`}>
+                  ? 'bg-warning/10 border-warning/50'
+                  : kycStatus === 'REJECTED'
+                    ? 'bg-error/10 border-error/50'
+                    : 'border-white/10'
+              }`}>
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900 mb-3">
@@ -1011,13 +1006,12 @@ const Profile = () => {
                             <span className="font-bold text-gray-900">Document Type: {doc.docType}</span>
                             <motion.span
                               whileHover={{ scale: 1.1 }}
-                              className={`px-3 py-1 rounded-full text-xs font-bold ${
-                                doc.status === 'APPROVED'
+                              className={`px-3 py-1 rounded-full text-xs font-bold ${doc.status === 'APPROVED'
                                   ? 'bg-success/20 text-success border border-success/30'
                                   : doc.status === 'PENDING'
-                                  ? 'bg-warning/20 text-warning border border-warning/30'
-                                  : 'bg-error/20 text-error border border-error/30'
-                              }`}
+                                    ? 'bg-warning/20 text-warning border border-warning/30'
+                                    : 'bg-error/20 text-error border border-error/30'
+                                }`}
                             >
                               {doc.status}
                             </motion.span>
@@ -1102,9 +1096,8 @@ const Profile = () => {
                         const file = e.target.files?.[0] || null;
                         handleKycFileChange('panDocument', file);
                       }}
-                      className={`w-full px-4 py-3 bg-white border rounded-xl text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 ${
-                        kycErrors.panDocument ? 'border-red-500' : 'border-gray-300'
-                      }`}
+                      className={`w-full px-4 py-3 bg-white border rounded-xl text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 ${kycErrors.panDocument ? 'border-red-500' : 'border-gray-300'
+                        }`}
                     />
                     {kycErrors.panDocument && <p className="text-error text-sm mt-2">{kycErrors.panDocument}</p>}
                     {kycFormData.panDocument && (
@@ -1140,9 +1133,8 @@ const Profile = () => {
                         const file = e.target.files?.[0] || null;
                         handleKycFileChange('additionalDocument', file);
                       }}
-                      className={`w-full px-4 py-3 bg-white border rounded-xl text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 ${
-                        kycErrors.additionalDocument ? 'border-red-500' : 'border-gray-300'
-                      }`}
+                      className={`w-full px-4 py-3 bg-white border rounded-xl text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 ${kycErrors.additionalDocument ? 'border-red-500' : 'border-gray-300'
+                        }`}
                     />
                     {kycErrors.additionalDocument && <p className="text-error text-sm mt-2">{kycErrors.additionalDocument}</p>}
                     {kycFormData.additionalDocument && (
@@ -1154,7 +1146,7 @@ const Profile = () => {
                     <label className="block text-sm font-semibold text-gray-900 mb-2">
                       Selfie * (Required - Live Capture)
                     </label>
-                    
+
                     {!showCamera && !capturedImage && (
                       <AnimatedButton
                         type="button"

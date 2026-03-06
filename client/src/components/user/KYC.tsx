@@ -24,7 +24,7 @@ const KYC = () => {
   const [kycStatus, setKycStatus] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  
+
   const [formData, setFormData] = useState({
     phone: '',
     panDocument: null as File | null, // PAN Card (mandatory)
@@ -86,7 +86,7 @@ const KYC = () => {
       if (profileResponse.success && profileResponse.data) {
         const userData = profileResponse.data as any;
         const documents = kycResponse.success && kycResponse.data ? (kycResponse.data as KycDocument[]) : [];
-        
+
         // If no documents exist, treat as not submitted
         if (documents.length === 0) {
           setKycStatus('');
@@ -209,25 +209,23 @@ const KYC = () => {
       if (ctx) {
         ctx.drawImage(videoRef.current, 0, 0);
         const imageDataUrl = canvas.toDataURL('image/jpeg', 0.9);
-        
+
         // Set captured image first (synchronously)
         setCapturedImage(imageDataUrl);
-        
+
         // Stop camera but keep the captured image
         stopCamera(true);
 
-        // Convert data URL to File (asynchronously)
-        fetch(imageDataUrl)
-          .then((res) => res.blob())
-          .then((blob) => {
+        // Convert canvas directly to Blob (avoids CSP issues with fetch on data URIs)
+        canvas.toBlob((blob) => {
+          if (blob) {
             const file = new File([blob], 'selfie.jpg', { type: 'image/jpeg' });
             setFormData((prev) => ({ ...prev, selfie: file }));
             setErrors((prev) => ({ ...prev, selfie: '' }));
-          })
-          .catch((error) => {
-            console.error('Error converting image to file:', error);
+          } else {
             showToast.error('Error processing captured image');
-          });
+          }
+        }, 'image/jpeg', 0.9);
       }
     }
   };
@@ -265,7 +263,7 @@ const KYC = () => {
       }
 
       const panResponse = await userApi.uploadKyc(panFormData);
-      
+
       if (!panResponse.success) {
         showToast.error(panResponse.error || 'Failed to upload PAN Card');
         setSubmitting(false);
@@ -284,7 +282,7 @@ const KYC = () => {
       }
 
       const additionalResponse = await userApi.uploadKyc(additionalFormData);
-      
+
       if (!additionalResponse.success) {
         showToast.error(additionalResponse.error || 'Failed to upload additional document');
         setSubmitting(false);
@@ -355,15 +353,14 @@ const KYC = () => {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, delay: 0.1 }}
       >
-        <GlassCard className={`${
-          kycStatus === 'APPROVED'
+        <GlassCard className={`${kycStatus === 'APPROVED'
             ? 'bg-success/10 border-success/50'
             : kycStatus === 'PENDING'
-            ? 'bg-warning/10 border-warning/50'
-            : kycStatus === 'REJECTED'
-            ? 'bg-error/10 border-error/50'
-            : 'border-white/10'
-        }`}>
+              ? 'bg-warning/10 border-warning/50'
+              : kycStatus === 'REJECTED'
+                ? 'bg-error/10 border-error/50'
+                : 'border-white/10'
+          }`}>
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base sm:text-lg font-bold text-gray-900 mb-2 sm:mb-3">
@@ -422,13 +419,12 @@ const KYC = () => {
                         <span className="font-bold text-gray-900">Document Type: {doc.docType}</span>
                         <motion.span
                           whileHover={{ scale: 1.1 }}
-                          className={`px-3 py-1 rounded-full text-xs font-bold ${
-                            doc.status === 'APPROVED'
+                          className={`px-3 py-1 rounded-full text-xs font-bold ${doc.status === 'APPROVED'
                               ? 'bg-success/20 text-success border border-success/30'
                               : doc.status === 'PENDING'
-                              ? 'bg-warning/20 text-warning border border-warning/30'
-                              : 'bg-error/20 text-error border border-error/30'
-                          }`}
+                                ? 'bg-warning/20 text-warning border border-warning/30'
+                                : 'bg-error/20 text-error border border-error/30'
+                            }`}
                         >
                           {doc.status}
                         </motion.span>
@@ -526,9 +522,8 @@ const KYC = () => {
                     const file = e.target.files?.[0] || null;
                     handleFileChange('panDocument', file);
                   }}
-                  className={`w-full px-4 py-3 bg-white border rounded-xl text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 ${
-                    errors.panDocument ? 'border-red-500' : 'border-gray-300'
-                  }`}
+                  className={`w-full px-4 py-3 bg-white border rounded-xl text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 ${errors.panDocument ? 'border-red-500' : 'border-gray-300'
+                    }`}
                 />
                 {errors.panDocument && <p className="text-error text-sm mt-2">{errors.panDocument}</p>}
                 {formData.panDocument && (
@@ -577,9 +572,8 @@ const KYC = () => {
                     const file = e.target.files?.[0] || null;
                     handleFileChange('additionalDocument', file);
                   }}
-                  className={`w-full px-4 py-3 bg-white border rounded-xl text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 ${
-                    errors.additionalDocument ? 'border-red-500' : 'border-gray-300'
-                  }`}
+                  className={`w-full px-4 py-3 bg-white border rounded-xl text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 ${errors.additionalDocument ? 'border-red-500' : 'border-gray-300'
+                    }`}
                 />
                 {errors.additionalDocument && <p className="text-error text-sm mt-2">{errors.additionalDocument}</p>}
                 {formData.additionalDocument && (
@@ -602,7 +596,7 @@ const KYC = () => {
                 <label className="block text-sm font-semibold text-gray-900 mb-2">
                   Selfie * (Required - Live Capture)
                 </label>
-                
+
                 {!showCamera && !capturedImage && (
                   <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
