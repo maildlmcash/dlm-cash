@@ -25,7 +25,7 @@ interface Wallet {
 
 const Wallet = () => {
   const navigate = useNavigate();
-  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDepositPanel, setShowDepositPanel] = useState(false);

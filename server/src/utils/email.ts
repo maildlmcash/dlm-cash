@@ -160,7 +160,7 @@ export const sendOTPEmail = async (
 
     // Send email and get response
     const info = await transporter!.sendMail(mailOptions);
-    
+
     // Check if email was rejected by SMTP server
     if (info.rejected && info.rejected.length > 0) {
       throw new AppError(`Email rejected by server: ${info.rejected.join(', ')}`, 400);
@@ -174,7 +174,7 @@ export const sendOTPEmail = async (
     console.log(`✅ OTP email sent to ${email} (Message ID: ${info.messageId})`);
   } catch (error: any) {
     console.error('❌ Error sending OTP email:', error?.message || error);
-    
+
     // Parse nodemailer errors for better messages
     if (error?.code === 'EENVELOPE') {
       throw new AppError('Invalid email address', 400);
@@ -185,12 +185,12 @@ export const sendOTPEmail = async (
     if (error?.responseCode === 553) {
       throw new AppError('Email address is invalid or mailbox name not allowed', 400);
     }
-    
+
     // If it's already an AppError, re-throw it
     if (error instanceof AppError) {
       throw error;
     }
-    
+
     // Provide helpful error messages
     const errorCode = error?.code;
     if (errorCode === 'EAUTH') {
@@ -200,11 +200,11 @@ export const sendOTPEmail = async (
       console.error('   - Enable 2-Step Verification if not already enabled');
       throw new AppError('Email authentication failed. Please check your SMTP credentials and use an App Password.', 500);
     }
-    
+
     if (errorCode === 'ECONNECTION' || errorCode === 'ETIMEDOUT') {
       throw new AppError('Failed to connect to email server. Please check your network and SMTP settings.', 500);
     }
-    
+
     throw new AppError(`Failed to send OTP email: ${error?.message || 'Unknown error'}`, 500);
   }
 };
@@ -346,7 +346,7 @@ export const sendAuthKeyEmail = async (
 
     // Send email and get response
     const info = await transporter!.sendMail(mailOptions);
-    
+
     // Check if email was rejected by SMTP server
     if (info.rejected && info.rejected.length > 0) {
       throw new AppError(`Email rejected by server: ${info.rejected.join(', ')}`, 400);
@@ -360,7 +360,7 @@ export const sendAuthKeyEmail = async (
     console.log(`✅ Authentication Key email sent to ${email} (Message ID: ${info.messageId})`);
   } catch (error: any) {
     console.error('❌ Error sending Authentication Key email:', error?.message || error);
-    
+
     // Parse nodemailer errors for better messages
     if (error?.code === 'EENVELOPE') {
       throw new AppError('Invalid email address', 400);
@@ -371,12 +371,12 @@ export const sendAuthKeyEmail = async (
     if (error?.responseCode === 553) {
       throw new AppError('Email address is invalid or mailbox name not allowed', 400);
     }
-    
+
     // If it's already an AppError, re-throw it
     if (error instanceof AppError) {
       throw error;
     }
-    
+
     throw new AppError(`Failed to send Authentication Key email: ${error?.message || 'Unknown error'}`, 500);
   }
 };

@@ -180,7 +180,7 @@ const KYCManagement = () => {
                     <a
                       href={(() => {
                         // Get base URL and remove /api suffix if present (static files are at root)
-                        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+                        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
                         const baseUrl = apiBaseUrl.replace(/\/api$/, '');
                         
                         // Extract filename from path (handle both 'uploads/filename.jpg' and just 'filename.jpg')
@@ -204,7 +204,7 @@ const KYCManagement = () => {
                     <a
                       href={(() => {
                         // Get base URL and remove /api suffix if present (static files are at root)
-                        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+                        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
                         const baseUrl = apiBaseUrl.replace(/\/api$/, '');
                         
                         // Extract filename from path (handle both 'uploads/filename.jpg' and just 'filename.jpg')

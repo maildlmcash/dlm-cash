@@ -641,7 +641,7 @@ const Deposits = () => {
                       <div className="flex flex-col gap-2">
                         {deposit.proofUrl && (
                           <a
-                            href={`${(import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api').replace(/\/api$/, '')}/uploads/${deposit.proofUrl}`}
+                            href={`${(import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/api$/, '')}/uploads/${deposit.proofUrl}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800 transition-colors w-fit text-sm font-semibold"

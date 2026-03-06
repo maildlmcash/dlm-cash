@@ -25,7 +25,7 @@ interface BankAccount {
 }
 
 const Settings = () => {
-  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
   const [activeTab, setActiveTab] = useState<'general' | 'security' | 'payment' | 'api' | 'cron' | 'bank-accounts' | 'upi-accounts' | 'deposit-settings' | 'platform-fee-settings' | 'network-config'>('general');
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [loadingBankAccounts, setLoadingBankAccounts] = useState(false);

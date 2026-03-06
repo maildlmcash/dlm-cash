@@ -161,7 +161,7 @@ const Staff = () => {
                     }
                     try {
                       // Use auth register endpoint to create staff
-                      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'}/auth/register`, {
+                      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || '/api'}/auth/register`, {
                         method: 'POST',
                         headers: {
                           'Content-Type': 'application/json',

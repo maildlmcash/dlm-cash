@@ -1036,7 +1036,7 @@ const Profile = () => {
                             variant="secondary"
                             size="sm"
                             onClick={() => {
-                              const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+                              const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
                               const baseUrl = apiBaseUrl.replace(/\/api$/, '');
                               let filename = doc.fileUrl;
                               if (filename.includes('/')) {
@@ -1053,7 +1053,7 @@ const Profile = () => {
                             variant="secondary"
                             size="sm"
                             onClick={() => {
-                              const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+                              const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
                               const baseUrl = apiBaseUrl.replace(/\/api$/, '');
                               let filename = doc.selfieUrl;
                               if (filename.includes('/')) {

@@ -7,7 +7,7 @@
         "install:all": "npm install --include=dev --prefix client && npm install --include=dev --prefix server",
         "build:client": "npm run build --prefix client",
         "build:server": "npm run build --prefix server",
-        "build": "npm run install:all && npm run build:client && npm run build:server",
+        "build": "npm run install:all && npm run build:client && npm run build:server && npm run prisma:deploy --prefix server",
         "start": "npm start --prefix server"
     }
 }

@@ -45,7 +45,7 @@ const Reports = () => {
                   e.stopPropagation();
                   try {
                     // Generate and download report
-                    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+                    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
                     const response = await fetch(`${API_BASE_URL}/admin/reports/${report.id}?format=csv`, {
                       headers: {
                         'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
@@ -87,7 +87,7 @@ const Reports = () => {
               <button
                 onClick={async () => {
                   try {
-                    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+                    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
                     const response = await fetch(`${API_BASE_URL}/admin/reports/${activeReport}?format=csv`, {
                       headers: {
                         'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
