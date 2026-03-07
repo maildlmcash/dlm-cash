@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiService } from '../../services/api';
 import { userApi } from '../../services/userApi';
@@ -59,6 +60,7 @@ const Profile = () => {
   const [showCamera, setShowCamera] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const kycErrorBannerRef = useRef<HTMLDivElement | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -310,7 +312,7 @@ const Profile = () => {
     }
   };
 
-  const validateKycForm = () => {
+  const validateKycForm = (): { valid: boolean; errors: typeof kycErrors } => {
     const newErrors = {
       phone: '',
       panDocument: '',
@@ -341,8 +343,8 @@ const Profile = () => {
       newErrors.selfie = 'Selfie is required';
     }
 
-    setKycErrors(newErrors);
-    return !Object.values(newErrors).some((error) => error !== '');
+    const valid = !Object.values(newErrors).some((error) => error !== '');
+    return { valid, errors: newErrors };
   };
 
   const handleKycFileChange = (field: 'panDocument' | 'additionalDocument' | 'selfie', file: File | null) => {
@@ -430,12 +432,40 @@ const Profile = () => {
     };
   }, [stream]);
 
+  const showKycError = (message: string) => {
+    if (kycErrorBannerRef.current) {
+      kycErrorBannerRef.current.textContent = message;
+      kycErrorBannerRef.current.style.display = 'block';
+    }
+    showToast.error(message);
+  };
+
   const handleKycSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!validateKycForm()) {
+    let valid = false;
+    let errors = { phone: '', panDocument: '', additionalDocType: '', additionalDocument: '', selfie: '' };
+    try {
+      const result = validateKycForm();
+      valid = result.valid;
+      errors = result.errors;
+    } catch (err) {
+      showKycError(err instanceof Error ? err.message : 'Validation failed');
       return;
     }
+
+    if (!valid) {
+      const firstError = Object.values(errors).find((msg) => msg !== '') ?? 'Please fix the errors in the form.';
+      if (kycErrorBannerRef.current) {
+        kycErrorBannerRef.current.textContent = firstError;
+        kycErrorBannerRef.current.style.display = 'block';
+      }
+      flushSync(() => setKycErrors(errors));
+      showToast.error(firstError);
+      return;
+    }
+
+    if (kycErrorBannerRef.current) kycErrorBannerRef.current.style.display = 'none';
 
     setSubmittingKyc(true);
     try {
@@ -1072,7 +1102,20 @@ const Profile = () => {
             {(kycDocuments.length === 0 || (kycStatus !== 'PENDING' && kycStatus !== 'APPROVED')) && (
               <GlassCard>
                 <h2 className="text-2xl font-bold text-gray-900 mb-6">Submit KYC Documents</h2>
-                <form onSubmit={handleKycSubmit} className="space-y-6">
+                {/* Ref-based error banner - updated on validation fail so it always shows */}
+                <div
+                  ref={kycErrorBannerRef}
+                  role="alert"
+                  className="mb-4 rounded-xl border-2 border-red-500 bg-red-100 p-4 text-sm font-medium text-red-800"
+                  style={{ display: 'none' }}
+                />
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleKycSubmit(e);
+                  }}
+                  className="space-y-6"
+                >
                   <AnimatedInput
                     label="Mobile Number *"
                     type="tel"
@@ -1080,6 +1123,7 @@ const Profile = () => {
                     onChange={(e) => {
                       setKycFormData({ ...kycFormData, phone: e.target.value });
                       setKycErrors({ ...kycErrors, phone: '' });
+                      if (kycErrorBannerRef.current) kycErrorBannerRef.current.style.display = 'none';
                     }}
                     placeholder="+919876543210"
                     error={kycErrors.phone}
@@ -1228,11 +1272,29 @@ const Profile = () => {
                     {kycErrors.selfie && <p className="text-error text-sm mt-2">{kycErrors.selfie}</p>}
                   </div>
 
+                  {/* Validation error summary - always visible when there are errors */}
+                  {Object.values(kycErrors).some((msg) => msg !== '') && (
+                    <div
+                      className="rounded-xl border-2 border-red-500 bg-red-50 p-4 text-sm text-red-800"
+                      role="alert"
+                    >
+                      <p className="font-semibold">Please fix the following:</p>
+                      <ul className="mt-2 list-inside list-disc space-y-1">
+                        {kycErrors.phone && <li>{kycErrors.phone}</li>}
+                        {kycErrors.panDocument && <li>{kycErrors.panDocument}</li>}
+                        {kycErrors.additionalDocType && <li>{kycErrors.additionalDocType}</li>}
+                        {kycErrors.additionalDocument && <li>{kycErrors.additionalDocument}</li>}
+                        {kycErrors.selfie && <li>{kycErrors.selfie}</li>}
+                      </ul>
+                    </div>
+                  )}
+
                   <AnimatedButton
-                    type="submit"
+                    type="button"
                     disabled={submittingKyc}
                     fullWidth
                     size="lg"
+                    onClick={() => handleKycSubmit({ preventDefault: () => {} } as React.FormEvent)}
                   >
                     {submittingKyc ? (
                       <span className="flex items-center justify-center gap-2">

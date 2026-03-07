@@ -173,7 +173,13 @@ class UserApiService {
         body: formData,
       });
 
-      const data = await response.json();
+      let data: { success?: boolean; message?: string; data?: unknown };
+      const text = await response.text();
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = { message: response.statusText || 'Upload failed' };
+      }
 
       if (!response.ok) {
         return {

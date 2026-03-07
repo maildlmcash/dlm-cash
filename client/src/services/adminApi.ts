@@ -160,6 +160,20 @@ class AdminApiService {
     });
   }
 
+  async approveUserKyc(userId: string, remarks?: string) {
+    return this.request(`/admin/kyc/user/${userId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ remarks }),
+    });
+  }
+
+  async rejectUserKyc(userId: string, remarks: string) {
+    return this.request(`/admin/kyc/user/${userId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ remarks }),
+    });
+  }
+
   // Deposit Management
   async getPendingDeposits(params?: { page?: number; limit?: number }) {
     const queryParams = new URLSearchParams();

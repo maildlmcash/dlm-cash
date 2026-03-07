@@ -8,6 +8,8 @@ import {
   getPendingKyc,
   approveKyc,
   rejectKyc,
+  approveUserKyc,
+  rejectUserKyc,
   getPendingDeposits,
   getAllDeposits,
   approveDeposit,
@@ -125,8 +127,10 @@ router.get('/users/:id/roi-logs', getUserRoiLogs);
 router.put('/users/:id/status', authorize('SUPER_ADMIN', 'ADMIN'), updateUserStatus);
 router.put('/users/:id/role', authorize('SUPER_ADMIN'), updateUserRole);
 
-// KYC Management
+// KYC Management (one entry per user)
 router.get('/kyc/pending', authorize('SUPER_ADMIN', 'ADMIN', 'KYC_MANAGER'), getPendingKyc);
+router.post('/kyc/user/:userId/approve', authorize('SUPER_ADMIN', 'ADMIN', 'KYC_MANAGER'), approveUserKyc);
+router.post('/kyc/user/:userId/reject', authorize('SUPER_ADMIN', 'ADMIN', 'KYC_MANAGER'), rejectUserKyc);
 router.post('/kyc/:id/approve', authorize('SUPER_ADMIN', 'ADMIN', 'KYC_MANAGER'), approveKyc);
 router.post('/kyc/:id/reject', authorize('SUPER_ADMIN', 'ADMIN', 'KYC_MANAGER'), rejectKyc);
 

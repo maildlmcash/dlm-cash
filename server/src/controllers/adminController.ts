@@ -128,7 +128,7 @@ export const getDashboardStats = async (
       prisma.investment.count(),
       prisma.deposit.aggregate({ _sum: { amount: true } }),
       prisma.withdrawal.aggregate({ _sum: { amount: true } }),
-      prisma.kycDocument.count({ where: { status: 'PENDING' } }),
+      prisma.kycDocument.groupBy({ by: ['userId'], where: { status: 'PENDING' } }).then((g) => g.length),
       prisma.deposit.count({ where: { status: 'PENDING' } }),
       prisma.withdrawal.count({ where: { status: 'PENDING' } }),
     ]);
@@ -311,7 +311,7 @@ export const updateUserRole = async (
   }
 };
 
-// KYC Management
+// KYC Management - one entry per user (with all their pending documents)
 export const getPendingKyc = async (
   req: AuthRequest,
   res: Response,
@@ -319,35 +319,54 @@ export const getPendingKyc = async (
 ) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
 
-    const [kycDocuments, total] = await Promise.all([
+    // Get distinct user IDs that have at least one PENDING KYC document
+    const grouped = await prisma.kycDocument.groupBy({
+      by: ['userId'],
+      where: { status: 'PENDING' },
+    });
+    const total = grouped.length;
+    const skip = (pageNum - 1) * limitNum;
+    const pageUserIds = grouped.slice(skip, skip + limitNum).map((g) => g.userId);
+
+    if (pageUserIds.length === 0) {
+      paginatedResponse(res, [], pageNum, limitNum, total, 'Pending KYC retrieved successfully');
+      return;
+    }
+
+    const [users, documents] = await Promise.all([
+      prisma.user.findMany({
+        where: { id: { in: pageUserIds } },
+        select: { id: true, name: true, email: true, phone: true },
+      }),
       prisma.kycDocument.findMany({
-        where: { status: 'PENDING' },
-        skip,
-        take: Number(limit),
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true,
-            },
-          },
-        },
+        where: { userId: { in: pageUserIds }, status: 'PENDING' },
         orderBy: { createdAt: 'asc' },
       }),
-      prisma.kycDocument.count({ where: { status: 'PENDING' } }),
     ]);
+
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    const docsByUser = new Map<string, typeof documents>();
+    for (const doc of documents) {
+      if (!docsByUser.has(doc.userId)) docsByUser.set(doc.userId, []);
+      docsByUser.get(doc.userId)!.push(doc);
+    }
+
+    const data = pageUserIds.map((userId) => {
+      const user = userMap.get(userId)!;
+      const docs = docsByUser.get(userId) || [];
+      return { user, documents: docs };
+    });
 
     paginatedResponse(
       res,
-      kycDocuments,
-      Number(page),
-      Number(limit),
+      data,
+      pageNum,
+      limitNum,
       total,
-      'Pending KYC documents retrieved successfully'
+      'Pending KYC retrieved successfully'
     );
   } catch (error) {
     next(error);
@@ -426,6 +445,90 @@ export const rejectKyc = async (
 
       await tx.user.update({
         where: { id: kycDocument.userId },
+        data: { kycStatus: 'REJECTED' },
+      });
+    });
+
+    successResponse(res, null, 'KYC rejected successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Approve all pending KYC documents for a user (one action per person)
+export const approveUserKyc = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { userId } = req.params;
+    const { remarks } = req.body;
+
+    const pendingDocs = await prisma.kycDocument.findMany({
+      where: { userId, status: 'PENDING' },
+    });
+
+    if (pendingDocs.length === 0) {
+      throw new AppError('No pending KYC documents found for this user', 404);
+    }
+
+    await prisma.$transaction(async (tx: any) => {
+      await tx.kycDocument.updateMany({
+        where: { userId, status: 'PENDING' },
+        data: {
+          status: 'APPROVED',
+          remarks: remarks || null,
+          reviewedBy: req.user.id,
+          reviewedAt: new Date(),
+        },
+      });
+      await tx.user.update({
+        where: { id: userId },
+        data: { kycStatus: 'APPROVED' },
+      });
+    });
+
+    successResponse(res, null, 'KYC approved successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Reject all pending KYC documents for a user (one action per person)
+export const rejectUserKyc = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { userId } = req.params;
+    const { remarks } = req.body;
+
+    if (!remarks?.trim()) {
+      throw new AppError('Remarks are required for rejection', 400);
+    }
+
+    const pendingDocs = await prisma.kycDocument.findMany({
+      where: { userId, status: 'PENDING' },
+    });
+
+    if (pendingDocs.length === 0) {
+      throw new AppError('No pending KYC documents found for this user', 404);
+    }
+
+    await prisma.$transaction(async (tx: any) => {
+      await tx.kycDocument.updateMany({
+        where: { userId, status: 'PENDING' },
+        data: {
+          status: 'REJECTED',
+          remarks,
+          reviewedBy: req.user.id,
+          reviewedAt: new Date(),
+        },
+      });
+      await tx.user.update({
+        where: { id: userId },
         data: { kycStatus: 'REJECTED' },
       });
     });

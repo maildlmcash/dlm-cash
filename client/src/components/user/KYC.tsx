@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { motion } from 'framer-motion';
 import { userApi } from '../../services/userApi';
 import { apiService } from '../../services/api';
@@ -37,6 +38,7 @@ const KYC = () => {
   const [showCamera, setShowCamera] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const errorBannerRef = useRef<HTMLDivElement | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
 
   const [errors, setErrors] = useState({
@@ -110,7 +112,7 @@ const KYC = () => {
     }
   };
 
-  const validateForm = () => {
+  const validateForm = (): { valid: boolean; errors: typeof errors } => {
     const newErrors = {
       phone: '',
       panDocument: '',
@@ -125,17 +127,14 @@ const KYC = () => {
       newErrors.phone = 'Phone number must be in E.164 format (e.g., +919876543210)';
     }
 
-    // PAN Card is mandatory
     if (!formData.panDocument) {
       newErrors.panDocument = 'PAN Card is mandatory';
     }
 
-    // Additional document type is required
     if (!formData.additionalDocType) {
       newErrors.additionalDocType = 'Additional document type is required';
     }
 
-    // Additional document is required
     if (!formData.additionalDocument) {
       newErrors.additionalDocument = 'Additional document image is required';
     }
@@ -144,8 +143,8 @@ const KYC = () => {
       newErrors.selfie = 'Selfie is required';
     }
 
-    setErrors(newErrors);
-    return !Object.values(newErrors).some((error) => error !== '');
+    const valid = !Object.values(newErrors).some((error) => error !== '');
+    return { valid, errors: newErrors };
   };
 
   const handleFileChange = (field: 'panDocument' | 'additionalDocument' | 'selfie', file: File | null) => {
@@ -245,9 +244,19 @@ const KYC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!validateForm()) {
+    const { valid, errors: newErrors } = validateForm();
+    if (!valid) {
+      const firstError = Object.values(newErrors).find((msg) => msg !== '') ?? 'Please fix the errors in the form.';
+      if (errorBannerRef.current) {
+        errorBannerRef.current.textContent = firstError;
+        errorBannerRef.current.style.display = 'block';
+      }
+      flushSync(() => setErrors(newErrors));
+      showToast.error(firstError);
       return;
     }
+
+    if (errorBannerRef.current) errorBannerRef.current.style.display = 'none';
 
     setSubmitting(true);
     try {
@@ -491,7 +500,19 @@ const KYC = () => {
         >
           <GlassCard>
             <h2 className="text-base sm:text-lg font-bold text-gray-900 mb-3 sm:mb-4">Submit KYC Documents</h2>
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <div
+              ref={errorBannerRef}
+              role="alert"
+              className="mb-4 rounded-xl border-2 border-red-500 bg-red-100 p-4 text-sm font-medium text-red-800"
+              style={{ display: 'none' }}
+            />
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSubmit(e);
+              }}
+              className="space-y-6"
+            >
               {/* Mobile Number */}
               <AnimatedInput
                 label="Mobile Number *"
@@ -500,6 +521,7 @@ const KYC = () => {
                 onChange={(e) => {
                   setFormData({ ...formData, phone: e.target.value });
                   setErrors({ ...errors, phone: '' });
+                  if (errorBannerRef.current) errorBannerRef.current.style.display = 'none';
                 }}
                 placeholder="+919876543210"
                 error={errors.phone}
@@ -703,12 +725,27 @@ const KYC = () => {
                 {errors.selfie && <p className="text-error text-sm mt-2">{errors.selfie}</p>}
               </div>
 
-              {/* Submit Button */}
+              {/* Validation error summary */}
+              {Object.values(errors).some((msg) => msg !== '') && (
+                <div className="rounded-xl border-2 border-red-500 bg-red-50 p-4 text-sm text-red-800" role="alert">
+                  <p className="font-semibold">Please fix the following:</p>
+                  <ul className="mt-2 list-inside list-disc space-y-1">
+                    {errors.phone && <li>{errors.phone}</li>}
+                    {errors.panDocument && <li>{errors.panDocument}</li>}
+                    {errors.additionalDocType && <li>{errors.additionalDocType}</li>}
+                    {errors.additionalDocument && <li>{errors.additionalDocument}</li>}
+                    {errors.selfie && <li>{errors.selfie}</li>}
+                  </ul>
+                </div>
+              )}
+
+              {/* Submit Button - onClick ensures handler runs even if form submit doesn't fire */}
               <AnimatedButton
-                type="submit"
+                type="button"
                 disabled={submitting}
                 fullWidth
                 size="lg"
+                onClick={() => handleSubmit({ preventDefault: () => {} } as React.FormEvent)}
               >
                 {submitting ? (
                   <span className="flex items-center justify-center gap-2">
