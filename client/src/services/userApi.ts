@@ -278,9 +278,13 @@ class UserApiService {
     return this.request('/user/pool-balances');
   }
 
-  async checkDeposits() {
-    return this.request('/user/deposit-wallet/check', {
+  async checkDeposits(params?: { txHash?: string; network?: string }) {
+    return this.request<{ processed: number }>('/user/deposit-wallet/check', {
       method: 'POST',
+      body: params?.txHash || params?.network ? JSON.stringify({
+        ...(params.txHash && { txHash: params.txHash }),
+        ...(params.network && { network: params.network }),
+      }) : undefined,
     });
   }
 

@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma';
 import { AppError } from '../middleware/errorHandler';
 import { successResponse, paginatedResponse } from '../utils/response';
 import { AuthRequest } from '../middleware/auth';
-import { monitorAllDeposits } from '../utils/blockchainMonitor';
+import { monitorAllDeposits, processTransferByTxHash, findUserByDepositTxHash } from '../utils/blockchainMonitor';
 import { calculateDailyROI } from '../schedulers/jobs/roiCalculation';
 import { calculateMonthlySalary } from '../schedulers/jobs/salaryCalculation';
 
@@ -1021,6 +1021,21 @@ export const approveWithdrawal = async (
           txId: blockchainTxHash,
         },
       });
+
+      if (blockchainTxHash && withdrawal.currency === 'USDT') {
+        await tx.blockchainTransactionLog.create({
+          data: {
+            txHash: blockchainTxHash,
+            action: 'WITHDRAW_SEND',
+            userId: withdrawal.userId,
+            amount: amountAfterFee.toFixed(18),
+            currency: 'USDT',
+            network: withdrawal.network ?? undefined,
+            relatedType: 'Withdrawal',
+            relatedId: withdrawal.id,
+          },
+        });
+      }
     });
 
     successResponse(res, null, 'Withdrawal approved successfully');
@@ -2007,7 +2022,6 @@ export const getPendingBlockchainDeposits = async (
   try {
     const pendingDeposits = await prisma.depositWalletTransaction.findMany({
       where: {
-        status: 'PENDING',
         credited: false,
       },
       include: {
@@ -2035,6 +2049,71 @@ export const getPendingBlockchainDeposits = async (
         count: pendingDeposits.length
       },
       'Pending blockchain deposits fetched successfully'
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Process a deposit by tx hash (admin). Creates/credits the deposit record.
+ * Body: { txHash: string, network?: string, userId?: string }.
+ * If userId is omitted, the recipient address is resolved from the tx and the user is looked up by depositWalletAddress.
+ */
+export const processDepositByTxHash = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { txHash, network: networkKey, userId: providedUserId } = req.body as {
+      txHash?: string;
+      network?: string;
+      userId?: string;
+    };
+    if (!txHash || typeof txHash !== 'string' || !/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+      throw new AppError('Valid txHash (0x + 64 hex chars) is required', 400);
+    }
+    const network = (networkKey && typeof networkKey === 'string' ? networkKey : 'sepolia').toLowerCase();
+
+    let userId: string;
+    let depositWalletAddress: string;
+
+    if (providedUserId) {
+      const user = await prisma.user.findUnique({
+        where: { id: providedUserId },
+        select: { id: true, depositWalletAddress: true },
+      });
+      if (!user?.depositWalletAddress) {
+        throw new AppError('User not found or has no deposit wallet', 404);
+      }
+      userId = user.id;
+      depositWalletAddress = user.depositWalletAddress;
+    } else {
+      const found = await findUserByDepositTxHash(txHash, network);
+      if (!found) {
+        throw new AppError(
+          'Could not resolve user from tx: receipt not found, tx failed, or no Transfer to a known deposit wallet',
+          404
+        );
+      }
+      userId = found.userId;
+      depositWalletAddress = found.depositWalletAddress;
+    }
+
+    const processedCount = await processTransferByTxHash(
+      txHash,
+      userId,
+      depositWalletAddress,
+      network
+    );
+
+    successResponse(
+      res,
+      { processed: processedCount, userId },
+      processedCount > 0
+        ? `Deposit processed and credited (${processedCount} record(s))`
+        : 'No new deposit record created (may already exist or tx not matching)'
     );
   } catch (error) {
     next(error);

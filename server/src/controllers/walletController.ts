@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma';
 import { AppError } from '../middleware/errorHandler';
 import { successResponse, paginatedResponse } from '../utils/response';
 import { AuthRequest } from '../middleware/auth';
-import { monitorUserDeposits } from '../utils/blockchainMonitor';
+import { monitorUserDeposits, processTransferByTxHash } from '../utils/blockchainMonitor';
 import { getPoolBalance } from '../utils/poolContract';
 
 export const getDepositWallet = async (
@@ -194,8 +194,25 @@ export const checkDeposits = async (
       throw new AppError('Deposit wallet not found', 404);
     }
 
-    // Monitor deposits for this user
-    const processedCount = await monitorUserDeposits(req.user.id, user.depositWalletAddress);
+    const txHash = req.body?.txHash as string | undefined;
+    const network = (req.body?.network as string | undefined)?.toLowerCase() || 'sepolia';
+
+    let processedCount = 0;
+
+    // If client sent tx hash (e.g. right after confirmation), confirm via RPC first (no Etherscan delay)
+    if (txHash && /^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+      processedCount = await processTransferByTxHash(
+        txHash,
+        req.user.id,
+        user.depositWalletAddress,
+        network
+      );
+    }
+
+    // Then run explorer-based scan for any other transfers
+    if (processedCount === 0) {
+      processedCount = await monitorUserDeposits(req.user.id, user.depositWalletAddress);
+    }
 
     successResponse(
       res,

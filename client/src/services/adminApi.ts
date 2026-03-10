@@ -790,6 +790,12 @@ class AdminApiService {
     });
   }
 
+  async fetchRateFromApi() {
+    return this.request('/admin/currency/fetch-api', {
+      method: 'POST',
+    });
+  }
+
   async getCurrencyRateLogs(params?: { page?: number; limit?: number }) {
     const queryParams = new URLSearchParams();
     if (params?.page) queryParams.append('page', params.page.toString());
@@ -801,6 +807,13 @@ class AdminApiService {
   // Blockchain Deposit Management
   async getPendingBlockchainDeposits() {
     return this.request('/admin/blockchain/deposits/pending');
+  }
+
+  async processDepositByTxHash(data: { txHash: string; network?: string; userId?: string }) {
+    return this.request('/admin/blockchain/deposits/process-by-txhash', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   }
 
   // Fund Management - Fee Statistics

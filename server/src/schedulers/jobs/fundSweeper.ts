@@ -4,7 +4,7 @@ import { decryptPrivateKey, getUsdtBalance } from '../../utils/evmWallet';
 
 // Configuration from environment
 const SEPOLIA_RPC_URL = process.env.SEPOLIA_RPC_URL || 'https://ethereum-sepolia.publicnode.com';
-const TUSDT_ADDRESS = '0x379D44df8fd761B888693764EE83e38Fe2fAD988'; // tUSDT on Sepolia
+const TUSDT_ADDRESS = '0xf37b0D267B05b16eA490134487fc4FAc2e3eD2a6'; // tUSDT on Sepolia
 const POOL_ADDRESS = '0x2196f8f2129b241a6D44830302Ab5B1eCA1d0f79'; // Pool contract
 const ADMIN_PRIVATE_KEY = process.env.ADMIN_PRIVATE_KEY!;
 
@@ -113,7 +113,10 @@ export const sweepDepositWallets = async () => {
         console.log(`      From: ${walletAddress}`);
         console.log(`      To: ${POOL_ADDRESS}`);
         console.log(`      Amount: ${amountInWei.toString()} (raw)`);
-        const tx = await tokenContract.transfer(POOL_ADDRESS, amountInWei);
+        const gasLimit = Number(process.env.ERC20_TRANSFER_GAS_LIMIT) || 100_000;
+        const tx = await tokenContract.transfer(POOL_ADDRESS, amountInWei, {
+          gasLimit,
+        });
         console.log(`   📝 Transaction sent: ${tx.hash}`);
         console.log(`   ⏳ Waiting for confirmation...`);
         const receipt = await tx.wait();

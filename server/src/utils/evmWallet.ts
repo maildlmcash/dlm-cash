@@ -79,8 +79,11 @@ export const transferToddWallet = async (
   // Convert amount to token decimals (USDT has 6 decimals)
   const amountInWei = ethers.parseUnits(amount, 6);
   
-  // Send transaction
-  const tx = await tokenContract.transfer(coldWalletAddress, amountInWei);
+  // Send transaction with explicit gas limit (avoids "gas limit too high" from strict RPCs)
+  const gasLimit = Number(process.env.ERC20_TRANSFER_GAS_LIMIT) || 100_000;
+  const tx = await tokenContract.transfer(coldWalletAddress, amountInWei, {
+    gasLimit,
+  });
   await tx.wait();
   
   return tx.hash;

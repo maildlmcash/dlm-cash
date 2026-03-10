@@ -14,7 +14,7 @@ This system automatically monitors and credits USDT deposits across multiple blo
 ## Supported Networks
 
 Currently configured for:
-- **Sepolia Testnet** (for testing) - tUSDT at `0x379D44df8fd761B888693764EE83e38Fe2fAD988`
+- **Sepolia Testnet** (for testing) - tUSDT at `0xf37b0D267B05b16eA490134487fc4FAc2e3eD2a6`
 - **Ethereum Mainnet** - USDT at `0xdAC17F958D2ee523a2206206994597C13D831ec7`
 - **BSC (Binance Smart Chain)** - USDT at `0x55d398326f99059fF775485246999027B3197955`
 - **Polygon** - USDT at `0xc2132D05D31c914a87C6611C10748AEb04B58e8F`
@@ -128,7 +128,7 @@ This manually triggers the blockchain monitoring for all users (useful for testi
 
 For Sepolia testnet:
 1. Get test ETH: https://sepoliafaucet.com/
-2. Get your tUSDT contract at: `0x379D44df8fd761B888693764EE83e38Fe2fAD988`
+2. Get your tUSDT contract at: `0xf37b0D267B05b16eA490134487fc4FAc2e3eD2a6`
 
 ### 2. Send Test Deposit
 

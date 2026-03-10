@@ -10,6 +10,7 @@ const Currency = () => {
   const [loading, setLoading] = useState(true);
   const [autoFetch, setAutoFetch] = useState(true);
   const [fetchingFromMoralis, setFetchingFromMoralis] = useState(false);
+  const [fetchingFromApi, setFetchingFromApi] = useState(false);
   const { confirm, isOpen, config, handleConfirm, handleCancel } = useConfirm();
 
   useEffect(() => {
@@ -63,6 +64,25 @@ const Currency = () => {
       setAutoFetch(false);
     } finally {
       setFetchingFromMoralis(false);
+    }
+  };
+
+  const fetchFromApi = async () => {
+    try {
+      setFetchingFromApi(true);
+      const response = await adminApi.fetchRateFromApi();
+      if (response.success && response.data) {
+        const data = response.data as any;
+        setRate(parseFloat(data.rate));
+        showToast.success('Rate updated from exchange-rate API');
+        loadCurrencyRate();
+      } else {
+        showToast.error(response.error || 'Failed to fetch rate from API');
+      }
+    } catch (error) {
+      showToast.error('An error occurred while fetching rate from API');
+    } finally {
+      setFetchingFromApi(false);
     }
   };
 
@@ -181,6 +201,13 @@ const Currency = () => {
                       {fetchingFromMoralis ? 'Fetching...' : 'Fetch Latest from Moralis'}
                     </button>
                   )}
+                  <button
+                    onClick={fetchFromApi}
+                    disabled={fetchingFromApi}
+                    className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 mt-2"
+                  >
+                    {fetchingFromApi ? 'Fetching...' : 'Fetch from API (no key)'}
+                  </button>
                 </div>
               </div>
             </div>

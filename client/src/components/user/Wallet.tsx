@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useSendTransaction, useWaitForTransactionReceipt, useReadContract } from 'wagmi';
-import { parseUnits, encodeFunctionData } from 'viem';
+import { parseUnits, formatUnits, encodeFunctionData } from 'viem';
 import { sepolia } from 'wagmi/chains';
 import { QRCodeSVG } from 'qrcode.react';
 import { IndianRupee, TrendingUp, Briefcase, Gift, Info, ArrowDownToLine, ArrowUpFromLine, RefreshCw } from 'lucide-react';
@@ -51,6 +51,7 @@ const Wallet = () => {
   const [usdtDepositAmount, setUsdtDepositAmount] = useState<string>('');
   const [depositTransactions, setDepositTransactions] = useState<any[]>([]);
   const [checkingDeposits, setCheckingDeposits] = useState(false);
+  const [depositTxHashToCheck, setDepositTxHashToCheck] = useState('');
   const [userBankAccounts, setUserBankAccounts] = useState<any[]>([]);
   const [selectedUserBankAccount, setSelectedUserBankAccount] = useState<string>('');
   const [withdrawalAddress, setWithdrawalAddress] = useState('');
@@ -78,7 +79,7 @@ const Wallet = () => {
   const [redeemingWallet, setRedeemingWallet] = useState<string | null>(null);
 
   // tUSDT contract address
-  const TUSDT_ADDRESS = '0x379D44df8fd761B888693764EE83e38Fe2fAD988' as const;
+  const TUSDT_ADDRESS = '0xf37b0D267B05b16eA490134487fc4FAc2e3eD2a6' as const;
 
   // Wagmi hooks
   const { address, isConnected, chain } = useAccount();
@@ -105,8 +106,8 @@ const Wallet = () => {
     },
   });
 
-  // Read tUSDT balance
-  const { refetch: refetchBalance } = useReadContract({
+  // Read tUSDT balance (for deposit validation)
+  const { data: tokenBalanceRaw, refetch: refetchBalance } = useReadContract({
     address: TUSDT_ADDRESS,
     abi: [
       {
@@ -124,11 +125,15 @@ const Wallet = () => {
     },
   });
 
-  // Show transaction errors
+  // Show transaction errors (user-friendly message for common reverts)
   useEffect(() => {
     if (txError) {
       console.error('Transaction error details:', txError);
-      showToast.error(txError.message || 'Transaction failed');
+      const msg = txError.message || '';
+      const friendlyMessage = msg.includes('Insufficient balance')
+        ? 'Insufficient tUSDT balance in your wallet. Reduce the amount or get test tUSDT from a Sepolia faucet.'
+        : msg || 'Transaction failed';
+      showToast.error(friendlyMessage);
     }
   }, [txError]);
 
@@ -205,18 +210,40 @@ const Wallet = () => {
 
   useEffect(() => {
     if (isConfirmed && txHash) {
-      // Transaction confirmed - reload pending transactions
-      showToast.success('Deposit transaction confirmed! Your balance will be updated shortly.');
+      showToast.success('Deposit confirmed! Crediting your balance...');
       setUsdtDepositAmount('');
       loadAllWallets();
       loadDepositTransactions();
       loadPendingTransactions();
-      // Force reload to reset transaction state
-      setTimeout(() => {
-        refetchBalance();
-      }, 2000);
+      refetchBalance();
+
+      const hash = txHash;
+      const network = selectedDepositNetwork || 'SEPOLIA';
+      let credited = false;
+      const runCheck = async () => {
+        if (credited) return;
+        try {
+          const res = await userApi.checkDeposits({ txHash: hash, network });
+          const processed = (res.data?.processed ?? 0) as number;
+          if (res.success && processed > 0) {
+            credited = true;
+            showToast.success('Deposit credited to your USDT wallet.');
+            await loadAllWallets();
+            await loadDepositTransactions();
+          }
+        } catch (_) {}
+      };
+      runCheck();
+      const t1 = setTimeout(runCheck, 2000);
+      const t2 = setTimeout(() => {
+        runCheck();
+        if (!credited) {
+          showToast.info('If balance didn\'t update, paste your tx hash below and click "Credit this tx".');
+        }
+      }, 10000);
+      return () => { clearTimeout(t1); clearTimeout(t2); };
     }
-  }, [isConfirmed, txHash]);
+  }, [isConfirmed, txHash, selectedDepositNetwork]);
 
   const loadAllWallets = async () => {
     try {
@@ -439,13 +466,21 @@ const Wallet = () => {
     return platformFeeSettings.minWithdrawalUSDT * currencyRate;
   };
 
-  const handleCheckDeposits = async () => {
+  const handleCheckDeposits = async (txHashOverride?: string) => {
     setCheckingDeposits(true);
     try {
-      const response = await userApi.checkDeposits();
+      const params = txHashOverride
+        ? { txHash: txHashOverride.trim(), network: selectedDepositNetwork || 'SEPOLIA' }
+        : undefined;
+      const response = await userApi.checkDeposits(params);
+      const processed = (response.data?.processed ?? 0) as number;
       if (response.success) {
-        showToast.success(response.message || 'Deposits checked successfully');
-        // Reload wallet balances and transactions
+        showToast.success(
+          processed > 0
+            ? `Credited ${processed} deposit(s) to your wallet.`
+            : (response.message || 'Deposits checked successfully')
+        );
+        if (txHashOverride) setDepositTxHashToCheck('');
         await loadAllWallets();
         await loadDepositTransactions();
       } else {
@@ -483,13 +518,22 @@ const Wallet = () => {
     }
 
     try {
-      // Calculate platform fee (will be deducted by backend from received amount)
-      const depositFee = (depositAmt * platformFeeSettings.depositFeePercent) / 100;
-      const amountAfterFee = depositAmt - depositFee;
-
       // Use token decimals from contract, fallback to 6 for custom tUSDT
       const decimals = Number(tokenDecimals ?? 6);
       const amount = parseUnits(depositAmt.toFixed(decimals), decimals);
+
+      // Check wallet has enough tUSDT before sending
+      if (tokenBalanceRaw !== undefined && tokenBalanceRaw < amount) {
+        const balanceFormatted = Number(formatUnits(tokenBalanceRaw, decimals)).toFixed(2);
+        showToast.error(
+          `Insufficient tUSDT balance. Your wallet has ${balanceFormatted} tUSDT but you're trying to send ${depositAmt}. Reduce the amount or get test tokens.`
+        );
+        return;
+      }
+
+      // Calculate platform fee (will be deducted by backend from received amount)
+      const depositFee = (depositAmt * platformFeeSettings.depositFeePercent) / 100;
+      const amountAfterFee = depositAmt - depositFee;
 
       console.log('🔍 Transaction Details:');
       console.log('  Decimals:', decimals);
@@ -514,10 +558,11 @@ const Wallet = () => {
         args: [depositWalletAddress as `0x${string}`, amount]
       });
 
-      // Send transaction via MetaMask
+      // Send transaction via MetaMask (explicit gas limit to avoid "gas limit too high" from strict RPCs)
       sendTransaction({
         to: TUSDT_ADDRESS,
         data: transferData,
+        gas: 100_000n,
       });
     } catch (error: any) {
       console.error('Transaction error:', error);
@@ -580,6 +625,10 @@ const Wallet = () => {
           }
         }
       } else if (paymentMethod === 'UPI') {
+        if (upiAccounts.length === 0) {
+          showToast.error('No UPI accounts available for deposit. Please contact support or use Bank Transfer.');
+          return;
+        }
         if (!selectedUpiAccount) {
           showToast.error('Please select a UPI account');
           return;
@@ -1651,8 +1700,19 @@ const Wallet = () => {
                   </>
                 )}
 
-                {activeModal === 'deposit-inr' && paymentMethod === 'UPI' && upiAccounts.length > 0 && (
+                {activeModal === 'deposit-inr' && paymentMethod === 'UPI' && (
                   <>
+                    {upiAccounts.length === 0 ? (
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                        <p className="text-sm text-amber-800 flex items-center gap-2">
+                          <span className="text-lg">📱</span>
+                          <span>
+                            <strong>No UPI accounts available</strong> for deposit at the moment. Please use <strong>Bank Transfer</strong> or contact support.
+                          </span>
+                        </p>
+                      </div>
+                    ) : (
+                    <>
                     <div>
                       <label className="block text-sm font-medium text-gray-900 mb-2">
                         📱 Select UPI Account <span className="text-red-600">*</span>
@@ -1763,6 +1823,8 @@ const Wallet = () => {
                           )}
                         </div>
                       </>
+                    )}
+                    </>
                     )}
                   </>
                 )}
@@ -2248,7 +2310,7 @@ const Wallet = () => {
                         <p className="text-xs font-semibold text-yellow-800 mb-2">📝 Need Test Tokens?</p>
                         <div className="text-xs text-yellow-700 space-y-1">
                           <p>1. Get test ETH: <a href="https://sepoliafaucet.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-semibold">Sepolia Faucet</a></p>
-                          <p>2. Get tUSDT from contract: <a href={`https://sepolia.etherscan.io/address/0x379D44df8fd761B888693764EE83e38Fe2fAD988#writeContract`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-mono text-xs break-all">0x379D44df8fd761B888693764EE83e38Fe2fAD988</a></p>
+                          <p>2. Get tUSDT from contract: <a href={`https://sepolia.etherscan.io/address/0xf37b0D267B05b16eA490134487fc4FAc2e3eD2a6#writeContract`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-mono text-xs break-all">0xf37b0D267B05b16eA490134487fc4FAc2e3eD2a6</a></p>
                           <p className="text-xs text-yellow-600 mt-1">⚠️ You need tUSDT tokens in your wallet to send</p>
                         </div>
                       </div>
@@ -2514,7 +2576,7 @@ const Wallet = () => {
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="text-sm font-semibold text-gray-900">Recent Deposits</h4>
                     <AnimatedButton
-                      onClick={handleCheckDeposits}
+                      onClick={() => handleCheckDeposits()}
                       disabled={checkingDeposits}
                       size="sm"
                       variant="primary"
@@ -2527,6 +2589,23 @@ const Wallet = () => {
                       ) : (
                         '🔍 Check Now'
                       )}
+                    </AnimatedButton>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 mb-3">
+                    <input
+                      type="text"
+                      placeholder="Paste tx hash if deposit not credited"
+                      value={depositTxHashToCheck}
+                      onChange={(e) => setDepositTxHashToCheck(e.target.value)}
+                      className="flex-1 min-w-[200px] px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono"
+                    />
+                    <AnimatedButton
+                      onClick={() => depositTxHashToCheck.trim() && handleCheckDeposits(depositTxHashToCheck.trim())}
+                      disabled={checkingDeposits || !depositTxHashToCheck.trim()}
+                      size="sm"
+                      variant="secondary"
+                    >
+                      Credit this tx
                     </AnimatedButton>
                   </div>
                   {depositTransactions.length > 0 ? (

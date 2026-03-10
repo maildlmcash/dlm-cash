@@ -20,7 +20,7 @@ const NETWORKS: Record<string, NetworkConfig> = {
     rpcUrl: process.env.SEPOLIA_RPC_URL || 'https://ethereum-sepolia.publicnode.com',
     explorerApiUrl: 'https://api.etherscan.io/v2/api',
     explorerApiKey: process.env.ETHERSCAN_API_KEY || '', // Sepolia works without key
-    tokenAddress: '0x379D44df8fd761B888693764EE83e38Fe2fAD988',
+    tokenAddress: '0xf37b0D267B05b16eA490134487fc4FAc2e3eD2a6',
     tokenDecimals: 18,
     chainId: 11155111,
     apiVersion: 'v2', // Sepolia uses V2
@@ -65,6 +65,8 @@ interface TransferEvent {
   blockNumber: string;
   blockTimestamp: string;
   tokenSymbol: string;
+  network?: string;
+  tokenAddress?: string;
 }
 
 /**
@@ -174,6 +176,8 @@ async function fetchTokenTransfersFromExplorer(
         blockNumber: tx.blockNumber,
         blockTimestamp: new Date(parseInt(tx.timeStamp) * 1000).toISOString(),
         tokenSymbol: tx.tokenSymbol || 'USDT',
+        network: networkKey.toUpperCase(),
+        tokenAddress: network.tokenAddress,
       }));
     }
 
@@ -237,11 +241,14 @@ async function processTransfer(
 
     // Create new transaction record
     const amount = parseFloat(transfer.amount);
-    const AUTO_CREDIT_THRESHOLD = 100; // USDT threshold for automatic crediting
-    
-    // Determine if amount is above threshold requiring manual approval
-    const requiresApproval = amount >= AUTO_CREDIT_THRESHOLD;
-    
+    const thresholdSetting = await prisma.setting.findUnique({
+      where: { key: 'deposit_autoCreditThresholdUSDT' },
+    });
+    const autoCreditThreshold = thresholdSetting
+      ? (typeof thresholdSetting.value === 'string' ? parseFloat(JSON.parse(thresholdSetting.value)) : Number(thresholdSetting.value))
+      : 100;
+    const requiresApproval = amount >= autoCreditThreshold;
+
     const depositTx = await prisma.depositWalletTransaction.create({
       data: {
         userId,
@@ -254,6 +261,8 @@ async function processTransfer(
         blockTimestamp: new Date(transfer.blockTimestamp),
         status: requiresApproval ? 'PENDING' : 'CONFIRMED',
         credited: false,
+        network: transfer.network || null,
+        tokenAddress: transfer.tokenAddress || null,
       },
     });
 
@@ -303,14 +312,25 @@ export async function creditUserBalance(
       where: { key: 'platform_depositFeePercent' },
     });
     const depositFeePercent = depositFeeSetting ? parseFloat(JSON.parse(depositFeeSetting.value as string)) : 0;
+
+    // Optional: random USDT allocation (internal balance not 1:1 with on-chain)
+    const randomMinSetting = await tx.setting.findUnique({ where: { key: 'deposit_credit_random_min_pct' } });
+    const randomMaxSetting = await tx.setting.findUnique({ where: { key: 'deposit_credit_random_max_pct' } });
+    const randomMinPct = randomMinSetting ? parseFloat(JSON.parse(randomMinSetting.value as string)) : 100;
+    const randomMaxPct = randomMaxSetting ? parseFloat(JSON.parse(randomMaxSetting.value as string)) : 100;
     
-    // Calculate platform fee and amount after fee
+    // Calculate platform fee and base amount after fee
     const platformFee = (amount * depositFeePercent) / 100;
-    const amountAfterFee = amount - platformFee;
+    const amountAfterFeeBase = amount - platformFee;
+    // Apply random allocation within [min%, max%] of base (e.g. 95-105% for "random USDT")
+    const randomPct = (randomMinPct === 100 && randomMaxPct === 100)
+      ? 100
+      : Math.random() * (randomMaxPct - randomMinPct) + randomMinPct;
+    const amountToCredit = (amountAfterFeeBase * randomPct) / 100;
     
     console.log(`💰 Amount: ${amount} USDT`);
     console.log(`💵 Platform Fee (${depositFeePercent}%): ${platformFee.toFixed(6)} USDT`);
-    console.log(`✨ Amount to Credit: ${amountAfterFee.toFixed(6)} USDT`);
+    console.log(`✨ Amount to Credit (internal, random ${randomPct.toFixed(2)}%): ${amountToCredit.toFixed(6)} USDT`);
 
     // Get or create USDT wallet
     let wallet = await tx.wallet.findFirst({
@@ -331,10 +351,10 @@ export async function creditUserBalance(
     }
 
     const currentBalance = parseFloat(wallet.balance.toString());
-    const newBalance = currentBalance + amountAfterFee;
+    const newBalance = currentBalance + amountToCredit;
     console.log(`💼 Updating balance: ${currentBalance.toFixed(6)} -> ${newBalance.toFixed(6)}`);
 
-    // Update wallet balance (credit amount after fee)
+    // Update wallet balance (credit internal/random amount)
     await tx.wallet.update({
       where: { id: wallet.id },
       data: {
@@ -348,11 +368,11 @@ export async function creditUserBalance(
         userId,
         walletId: wallet.id,
         type: 'DEPOSIT',
-        amount: parseFloat(amountAfterFee.toFixed(18)),
+        amount: parseFloat(amountToCredit.toFixed(18)),
         currency: 'USDT',
         status: 'COMPLETED',
         txId: depositWalletTx.txHash,
-        description: `Blockchain deposit credited (fee: ${platformFee.toFixed(6)} USDT)`,
+        description: `Blockchain deposit credited (fee: ${platformFee.toFixed(6)} USDT, internal: ${amountToCredit.toFixed(6)} USDT)`,
       },
     });
 
@@ -365,9 +385,122 @@ export async function creditUserBalance(
         platformFee: platformFee.toFixed(18),
       },
     });
+
+    // Transaction ID / audit log: map blockchain txHash to internal credit (reconciliation)
+    await tx.blockchainTransactionLog.create({
+      data: {
+        txHash: depositWalletTx.txHash,
+        action: 'DEPOSIT_CREDIT',
+        userId,
+        amount: amountToCredit.toFixed(18),
+        currency: 'USDT',
+        network: depositWalletTx.network ?? undefined,
+        relatedType: 'DepositWalletTransaction',
+        relatedId: depositTxId,
+      },
+    });
     
-    console.log(`✅ Credited ${amountAfterFee.toFixed(6)} USDT to wallet (Platform Fee: ${platformFee.toFixed(6)} USDT)`);
+    console.log(`✅ Credited ${amountToCredit.toFixed(6)} USDT to wallet (Platform Fee: ${platformFee.toFixed(6)} USDT)`);
   });
+}
+
+/** ERC20 Transfer(address,address,uint256) topic */
+const TRANSFER_TOPIC = ethers.id('Transfer(address,address,uint256)');
+
+/**
+ * Process a single deposit by transaction hash using RPC (no Etherscan indexing delay).
+ * Use when the client just confirmed a tx so we credit immediately.
+ */
+export async function processTransferByTxHash(
+  txHash: string,
+  userId: string,
+  depositWalletAddress: string,
+  networkKey: string = 'sepolia'
+): Promise<number> {
+  const network = NETWORKS[networkKey];
+  if (!network) {
+    console.error(`⚠️ Unknown network: ${networkKey}`);
+    return 0;
+  }
+
+  const provider = new ethers.JsonRpcProvider(network.rpcUrl);
+  const receipt = await provider.getTransactionReceipt(txHash);
+  if (!receipt) {
+    console.log(`⏳ Tx ${txHash.slice(0, 10)}... not found (not mined yet?)`);
+    return 0;
+  }
+  if (Number(receipt.status) !== 1) {
+    console.log(`⏳ Tx ${txHash.slice(0, 10)}... not successful (status: ${receipt.status})`);
+    return 0;
+  }
+
+  const tokenAddressLower = network.tokenAddress.toLowerCase();
+  const depositWalletLower = depositWalletAddress.toLowerCase();
+
+  let tokenDecimals = network.tokenDecimals;
+  try {
+    const tokenContract = new ethers.Contract(network.tokenAddress, ['function decimals() view returns (uint8)'], provider);
+    tokenDecimals = await tokenContract.decimals();
+  } catch (_) {
+    // keep network default
+  }
+
+  for (const log of receipt.logs) {
+    if (log.address.toLowerCase() !== tokenAddressLower || log.topics[0] !== TRANSFER_TOPIC) continue;
+    const from = ethers.getAddress('0x' + log.topics[1].slice(-40));
+    const to = ethers.getAddress('0x' + log.topics[2].slice(-40));
+    if (to.toLowerCase() !== depositWalletLower) continue;
+
+    const value = log.data && log.data !== '0x' ? BigInt(log.data) : 0n;
+    const amountStr = ethers.formatUnits(value, tokenDecimals);
+    const block = await provider.getBlock(receipt.blockNumber);
+    const blockTimestamp = block?.timestamp != null ? new Date(block.timestamp * 1000).toISOString() : new Date().toISOString();
+
+    const transfer: TransferEvent = {
+      txHash,
+      from,
+      to,
+      amount: amountStr,
+      blockNumber: String(receipt.blockNumber),
+      blockTimestamp,
+      tokenSymbol: 'USDT',
+      network: networkKey.toUpperCase(),
+      tokenAddress: network.tokenAddress,
+    };
+
+    console.log(`📥 [RPC] Processing tx ${txHash.slice(0, 10)}... amount: ${amountStr} to deposit wallet`);
+    const processed = await processTransfer(transfer, userId);
+    return processed ? 1 : 0;
+  }
+
+  console.log(`⚠️ No Transfer to deposit wallet in tx ${txHash.slice(0, 10)}... (expected to: ${depositWalletAddress.slice(0, 10)}..., token: ${network.tokenAddress.slice(0, 10)}...)`);
+  return 0;
+}
+
+/**
+ * Find userId whose deposit wallet received the transfer in this tx (for admin manual process).
+ * Returns { userId, depositWalletAddress } or null if not found.
+ */
+export async function findUserByDepositTxHash(
+  txHash: string,
+  networkKey: string = 'sepolia'
+): Promise<{ userId: string; depositWalletAddress: string } | null> {
+  const network = NETWORKS[networkKey];
+  if (!network) return null;
+  const provider = new ethers.JsonRpcProvider(network.rpcUrl);
+  const receipt = await provider.getTransactionReceipt(txHash);
+  if (!receipt || Number(receipt.status) !== 1) return null;
+  const tokenLower = network.tokenAddress.toLowerCase();
+  for (const log of receipt.logs) {
+    if (log.address.toLowerCase() !== tokenLower || log.topics[0] !== TRANSFER_TOPIC) continue;
+    const to = ethers.getAddress('0x' + log.topics[2].slice(-40));
+    const user = await prisma.user.findFirst({
+      where: { depositWalletAddress: { equals: to, mode: 'insensitive' } },
+      select: { id: true, depositWalletAddress: true },
+    });
+    if (user?.depositWalletAddress) return { userId: user.id, depositWalletAddress: user.depositWalletAddress };
+  }
+  return null;
 }
 
 /**

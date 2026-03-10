@@ -166,6 +166,59 @@ export const getCurrencyRateLogs = async (
   }
 };
 
+// Fetch INR/USDT rate from public exchange-rate API (no key; uses USD/INR as proxy for USDT)
+export const fetchRateFromApi = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { fetchUSDToINRRate } = await import('../utils/moralis');
+    const rate = await fetchUSDToINRRate();
+
+    const previousRate = await prisma.currencyRate.findFirst({
+      where: { pair: 'INR/USDT' },
+      orderBy: { fetchedAt: 'desc' },
+    });
+
+    const newRate = await prisma.currencyRate.create({
+      data: {
+        pair: 'INR/USDT',
+        rate: rate.toString(),
+        source: 'exchangerate-api',
+        fetchedAt: new Date(),
+      },
+    });
+
+    await prisma.currencyRateLog.create({
+      data: {
+        currencyRateId: newRate.id,
+        previousRate: previousRate ? previousRate.rate.toString() : null,
+        newRate: rate.toString(),
+        changedBy: req.user?.id || 'system',
+        source: 'exchangerate-api',
+      },
+    });
+
+    successResponse(
+      res,
+      {
+        id: newRate.id,
+        pair: newRate.pair,
+        rate: newRate.rate.toString(),
+        source: newRate.source,
+        fetchedAt: newRate.fetchedAt,
+      },
+      'Currency rate fetched from API successfully'
+    );
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new AppError(`Failed to fetch rate from API: ${error.message}`, 500);
+    }
+    next(error);
+  }
+};
+
 // Fetch currency rate from Moralis API
 export const fetchMoralisRate = async (
   req: AuthRequest,

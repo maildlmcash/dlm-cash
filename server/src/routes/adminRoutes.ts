@@ -28,6 +28,7 @@ import {
   monitorBlockchainDeposits,
   recalculateDepositBalances,
   getPendingBlockchainDeposits,
+  processDepositByTxHash,
   approveBlockchainDeposit,
   rejectBlockchainDeposit,
   getAllTransactions,
@@ -100,6 +101,7 @@ import {
   updateCurrencyRateValidation,
   getCurrencyRateLogs,
   fetchMoralisRate,
+  fetchRateFromApi,
 } from '../controllers/currencyController';
 import {
   getNetworkConfigs,
@@ -207,12 +209,14 @@ router.delete('/upi-accounts/:id', authorize('SUPER_ADMIN', 'ADMIN'), deleteUpiA
 router.get('/currency/rate', getCurrentCurrencyRate);
 router.post('/currency/rate', authorize('SUPER_ADMIN', 'ADMIN'), validate(updateCurrencyRateValidation), updateCurrencyRate);
 router.post('/currency/fetch-moralis', authorize('SUPER_ADMIN', 'ADMIN'), fetchMoralisRate);
+router.post('/currency/fetch-api', authorize('SUPER_ADMIN', 'ADMIN'), fetchRateFromApi);
 router.get('/currency/logs', authorize('SUPER_ADMIN', 'ADMIN'), getCurrencyRateLogs);
 
 // Blockchain Monitoring
 router.post('/blockchain/monitor', authorize('SUPER_ADMIN', 'ADMIN'), monitorBlockchainDeposits);
 router.post('/blockchain/recalculate-balances', authorize('SUPER_ADMIN', 'ADMIN'), recalculateDepositBalances);
 router.get('/blockchain/deposits/pending', authorize('SUPER_ADMIN', 'ADMIN'), getPendingBlockchainDeposits);
+router.post('/blockchain/deposits/process-by-txhash', authorize('SUPER_ADMIN', 'ADMIN'), processDepositByTxHash);
 router.post('/blockchain/deposits/:transactionId/approve', authorize('SUPER_ADMIN', 'ADMIN'), approveBlockchainDeposit);
 router.post('/blockchain/deposits/:transactionId/reject', authorize('SUPER_ADMIN', 'ADMIN'), rejectBlockchainDeposit);
 

@@ -77,9 +77,12 @@ export const withdrawFromPool = async (
       throw new Error(`Insufficient pool balance. Pool has ${ethers.formatUnits(poolBalance, 6)} tUSDT, requested ${amount} tUSDT`);
     }
 
-    // Call withdrawTo function
+    // Call withdrawTo function (explicit gas limit for strict RPCs)
+    const poolGasLimit = Number(process.env.POOL_WITHDRAW_GAS_LIMIT) || 200_000;
     console.log('📝 Sending transaction...');
-    const tx = await poolContract.withdrawTo(toAddress, amountInWei);
+    const tx = await poolContract.withdrawTo(toAddress, amountInWei, {
+      gasLimit: poolGasLimit,
+    });
     console.log('⏳ Waiting for confirmation... TX:', tx.hash);
     
     const receipt = await tx.wait();

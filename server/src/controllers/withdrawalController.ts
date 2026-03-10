@@ -219,6 +219,22 @@ export const createWithdrawal = async (
           description: `USDT withdrawal to ${withdrawalAddress} (auto-approved)`,
         },
       });
+
+      // Transaction ID / audit log: map blockchain txHash for reconciliation
+      if (txHash) {
+        await prisma.blockchainTransactionLog.create({
+          data: {
+            txHash,
+            action: 'WITHDRAW_SEND',
+            userId: req.user.id,
+            amount: amountAfterFee.toFixed(18),
+            currency: 'USDT',
+            network: network?.toUpperCase() ?? undefined,
+            relatedType: 'Withdrawal',
+            relatedId: withdrawal.id,
+          },
+        });
+      }
     } else {
       // For pending withdrawals, move to pending balance
       await prisma.wallet.update({

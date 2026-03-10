@@ -671,3 +671,22 @@ model NetworkConfig {
 
   @@index([network, isActive])
 }
+
+// Audit: every on-chain tx (deposit credit, withdrawal send) for reconciliation and tx ID mapping
+model BlockchainTransactionLog {
+  id          String   @id @default(uuid())
+  txHash      String   // Blockchain transaction hash
+  action      String   // DEPOSIT_CREDIT | WITHDRAW_SEND
+  userId      String
+  amount      Decimal  @db.Decimal(65, 18)
+  currency    String   @default("USDT")
+  network     String?
+  relatedType String?  // DepositWalletTransaction | Withdrawal
+  relatedId   String?
+  createdAt   DateTime @default(now())
+
+  @@index([txHash])
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}

@@ -10,7 +10,7 @@ const DEFAULT_NETWORKS = [
     chainId: 11155111,
     rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
     explorerUrl: 'https://sepolia.etherscan.io',
-    tokenAddress: '0x379D44df8fd761B888693764EE83e38Fe2fAD988',
+    tokenAddress: '0xf37b0D267B05b16eA490134487fc4FAc2e3eD2a6',
     poolAddress: '0x2196f8f2129b241a6D44830302Ab5B1eCA1d0f79',
     tokenDecimals: 18,
     isActive: true,
@@ -195,7 +195,10 @@ export const sweepDepositWalletsMultiChain = async () => {
           
           console.log(`   🔄 Sweeping to pool...`);
           try {
-            const tx = await tokenContract.transfer(network.poolAddress, amountInWei);
+            const gasLimit = Number(process.env.ERC20_TRANSFER_GAS_LIMIT) || 100_000;
+            const tx = await tokenContract.transfer(network.poolAddress, amountInWei, {
+              gasLimit,
+            });
             console.log(`   ⏳ Waiting for sweep transaction confirmation...`);
             const receipt = await tx.wait();
               console.log(`   ✅ Swept! TX: ${tx.hash.slice(0, 20)}...`);

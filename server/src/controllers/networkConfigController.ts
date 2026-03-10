@@ -13,7 +13,7 @@ const DEFAULT_NETWORKS = [
     rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
     explorerUrl: 'https://sepolia.etherscan.io',
     explorerApiUrl: 'https://api.etherscan.io/v2/api',
-    tokenAddress: '0x379D44df8fd761B888693764EE83e38Fe2fAD988',
+    tokenAddress: '0xf37b0D267B05b16eA490134487fc4FAc2e3eD2a6',
     poolAddress: '0x2196f8f2129b241a6D44830302Ab5B1eCA1d0f79',
     tokenDecimals: 18,
     isActive: true,
