@@ -809,19 +809,6 @@ class AdminApiService {
     return this.request('/admin/blockchain/deposits/pending');
   }
 
-  async approveBlockchainDeposit(transactionId: string) {
-    return this.request(`/admin/blockchain/deposits/${transactionId}/approve`, {
-      method: 'POST',
-    });
-  }
-
-  async rejectBlockchainDeposit(transactionId: string, reason?: string) {
-    return this.request(`/admin/blockchain/deposits/${transactionId}/reject`, {
-      method: 'POST',
-      body: JSON.stringify({ reason }),
-    });
-  }
-
   // Fund Management - Fee Statistics
   async getFeeStats(dateRange: 'all' | 'today' | 'week' | 'month' = 'all') {
     return this.request(`/admin/fund-management/fees?range=${dateRange}`);

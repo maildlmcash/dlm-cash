@@ -292,112 +292,106 @@ export async function creditUserBalance(
   amount: number
 ): Promise<void> {
   console.log(`💳 Processing ${amount} USDT deposit for user ${userId}...`);
-  
-  await prisma.$transaction(async (tx) => {
-    // Get the deposit wallet transaction to retrieve the txHash
-    const depositWalletTx = await tx.depositWalletTransaction.findUnique({
-      where: { id: depositTxId },
+  // 1) Load deposit tx and settings
+  const depositWalletTx = await prisma.depositWalletTransaction.findUnique({
+    where: { id: depositTxId },
+  });
+  if (!depositWalletTx) {
+    throw new Error('Deposit wallet transaction not found');
+  }
+
+  const depositFeeSetting = await prisma.setting.findUnique({
+    where: { key: 'platform_depositFeePercent' },
+  });
+  const depositFeePercent = depositFeeSetting ? parseFloat(JSON.parse(depositFeeSetting.value as string)) : 0;
+
+  const randomMinSetting = await prisma.setting.findUnique({ where: { key: 'deposit_credit_random_min_pct' } });
+  const randomMaxSetting = await prisma.setting.findUnique({ where: { key: 'deposit_credit_random_max_pct' } });
+  const randomMinPct = randomMinSetting ? parseFloat(JSON.parse(randomMinSetting.value as string)) : 100;
+  const randomMaxPct = randomMaxSetting ? parseFloat(JSON.parse(randomMaxSetting.value as string)) : 100;
+
+  // 2) Compute fee and amount to credit
+  const platformFee = (amount * depositFeePercent) / 100;
+  const amountAfterFeeBase = amount - platformFee;
+  const randomPct = (randomMinPct === 100 && randomMaxPct === 100)
+    ? 100
+    : Math.random() * (randomMaxPct - randomMinPct) + randomMinPct;
+  const amountToCredit = (amountAfterFeeBase * randomPct) / 100;
+
+  console.log(`💰 Amount: ${amount} USDT`);
+  console.log(`💵 Platform Fee (${depositFeePercent}%): ${platformFee.toFixed(6)} USDT`);
+  console.log(`✨ Amount to Credit (internal, random ${randomPct.toFixed(2)}%): ${amountToCredit.toFixed(6)} USDT`);
+
+  // 3) Get or create USDT wallet
+  let wallet = await prisma.wallet.findFirst({
+    where: { userId, type: 'USDT' },
+  });
+  if (!wallet) {
+    console.log(`📝 Creating new USDT wallet for user ${userId}`);
+    wallet = await prisma.wallet.create({
+      data: {
+        userId,
+        type: 'USDT',
+        balance: '0',
+        pending: '0',
+        currency: 'USDT',
+      },
     });
+  }
 
-    if (!depositWalletTx) {
-      throw new Error('Deposit wallet transaction not found');
-    }
+  const currentBalance = parseFloat(wallet.balance.toString());
+  const newBalance = currentBalance + amountToCredit;
+  console.log(`💼 Updating balance: ${currentBalance.toFixed(6)} -> ${newBalance.toFixed(6)}`);
 
-    // Fetch platform fee settings
-    const depositFeeSetting = await tx.setting.findUnique({
-      where: { key: 'platform_depositFeePercent' },
-    });
-    const depositFeePercent = depositFeeSetting ? parseFloat(JSON.parse(depositFeeSetting.value as string)) : 0;
+  // 4) Apply updates with simple, short queries (no long interactive transaction)
+  await prisma.wallet.update({
+    where: { id: wallet.id },
+    data: { balance: newBalance.toFixed(18) },
+  });
 
-    // Optional: random USDT allocation (internal balance not 1:1 with on-chain)
-    const randomMinSetting = await tx.setting.findUnique({ where: { key: 'deposit_credit_random_min_pct' } });
-    const randomMaxSetting = await tx.setting.findUnique({ where: { key: 'deposit_credit_random_max_pct' } });
-    const randomMinPct = randomMinSetting ? parseFloat(JSON.parse(randomMinSetting.value as string)) : 100;
-    const randomMaxPct = randomMaxSetting ? parseFloat(JSON.parse(randomMaxSetting.value as string)) : 100;
-    
-    // Calculate platform fee and base amount after fee
-    const platformFee = (amount * depositFeePercent) / 100;
-    const amountAfterFeeBase = amount - platformFee;
-    // Apply random allocation within [min%, max%] of base (e.g. 95-105% for "random USDT")
-    const randomPct = (randomMinPct === 100 && randomMaxPct === 100)
-      ? 100
-      : Math.random() * (randomMaxPct - randomMinPct) + randomMinPct;
-    const amountToCredit = (amountAfterFeeBase * randomPct) / 100;
-    
-    console.log(`💰 Amount: ${amount} USDT`);
-    console.log(`💵 Platform Fee (${depositFeePercent}%): ${platformFee.toFixed(6)} USDT`);
-    console.log(`✨ Amount to Credit (internal, random ${randomPct.toFixed(2)}%): ${amountToCredit.toFixed(6)} USDT`);
+  await prisma.transaction.create({
+    data: {
+      userId,
+      walletId: wallet.id,
+      type: 'DEPOSIT',
+      amount: parseFloat(amountToCredit.toFixed(18)),
+      currency: 'USDT',
+      status: 'COMPLETED',
+      txId: depositWalletTx.txHash,
+      description: `Blockchain deposit credited (fee: ${platformFee.toFixed(6)} USDT, internal: ${amountToCredit.toFixed(6)} USDT)`,
+    },
+  });
 
-    // Get or create USDT wallet
-    let wallet = await tx.wallet.findFirst({
-      where: { userId, type: 'USDT' },
-    });
+  await prisma.depositWalletTransaction.update({
+    where: { id: depositTxId },
+    data: {
+      credited: true,
+      creditedAt: new Date(),
+      platformFee: platformFee.toFixed(18),
+    },
+  });
 
-    if (!wallet) {
-      console.log(`📝 Creating new USDT wallet for user ${userId}`);
-      wallet = await tx.wallet.create({
+  console.log(`✅ Credited ${amountToCredit.toFixed(6)} USDT to wallet (Platform Fee: ${platformFee.toFixed(6)} USDT)`);
+
+  // 5) Best-effort audit log; ignore failures
+  if (process.env.DISABLE_BLOCKCHAIN_AUDIT_LOG !== 'true') {
+    try {
+      await prisma.blockchainTransactionLog.create({
         data: {
+          txHash: depositWalletTx.txHash,
+          action: 'DEPOSIT_CREDIT',
           userId,
-          type: 'USDT',
-          balance: '0',
-          pending: '0',
+          amount: amountToCredit.toFixed(18),
           currency: 'USDT',
+          network: depositWalletTx.network ?? undefined,
+          relatedType: 'DepositWalletTransaction',
+          relatedId: depositTxId,
         },
       });
+    } catch (logError: any) {
+      console.error('⚠️ Failed to write BlockchainTransactionLog (non-fatal):', logError.message || logError);
     }
-
-    const currentBalance = parseFloat(wallet.balance.toString());
-    const newBalance = currentBalance + amountToCredit;
-    console.log(`💼 Updating balance: ${currentBalance.toFixed(6)} -> ${newBalance.toFixed(6)}`);
-
-    // Update wallet balance (credit internal/random amount)
-    await tx.wallet.update({
-      where: { id: wallet.id },
-      data: {
-        balance: newBalance.toFixed(18),
-      },
-    });
-
-    // Create transaction record with blockchain txHash
-    await tx.transaction.create({
-      data: {
-        userId,
-        walletId: wallet.id,
-        type: 'DEPOSIT',
-        amount: parseFloat(amountToCredit.toFixed(18)),
-        currency: 'USDT',
-        status: 'COMPLETED',
-        txId: depositWalletTx.txHash,
-        description: `Blockchain deposit credited (fee: ${platformFee.toFixed(6)} USDT, internal: ${amountToCredit.toFixed(6)} USDT)`,
-      },
-    });
-
-    // Mark deposit wallet transaction as credited and store platform fee
-    await tx.depositWalletTransaction.update({
-      where: { id: depositTxId },
-      data: {
-        credited: true,
-        creditedAt: new Date(),
-        platformFee: platformFee.toFixed(18),
-      },
-    });
-
-    // Transaction ID / audit log: map blockchain txHash to internal credit (reconciliation)
-    await tx.blockchainTransactionLog.create({
-      data: {
-        txHash: depositWalletTx.txHash,
-        action: 'DEPOSIT_CREDIT',
-        userId,
-        amount: amountToCredit.toFixed(18),
-        currency: 'USDT',
-        network: depositWalletTx.network ?? undefined,
-        relatedType: 'DepositWalletTransaction',
-        relatedId: depositTxId,
-      },
-    });
-    
-    console.log(`✅ Credited ${amountToCredit.toFixed(6)} USDT to wallet (Platform Fee: ${platformFee.toFixed(6)} USDT)`);
-  });
+  }
 }
 
 /** ERC20 Transfer(address,address,uint256) topic */
