@@ -60,10 +60,6 @@ const Deposits = () => {
   const [userStats, setUserStats] = useState<Record<string, UserDepositStats>>({});
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkProcessing, setBulkProcessing] = useState(false);
-  const [processTxHash, setProcessTxHash] = useState('');
-  const [processNetwork, setProcessNetwork] = useState('sepolia');
-  const [processUserId, setProcessUserId] = useState('');
-  const [processByTxHashLoading, setProcessByTxHashLoading] = useState(false);
 
   useEffect(() => {
     loadDeposits();
@@ -199,14 +195,12 @@ const Deposits = () => {
   const { confirm, isOpen, config, handleConfirm, handleCancel } = useConfirm();
 
   const handleApprove = async (id: string) => {
-    // Check if this is a blockchain deposit
     const deposit = deposits.find(d => d.id === id);
     const isBlockchain = deposit?.method === 'BLOCKCHAIN';
-    
     confirm(
       isBlockchain ? 'Approve Blockchain Deposit' : 'Approve Deposit',
-      isBlockchain 
-        ? 'Are you sure you want to approve this blockchain deposit? The user\'s balance will be credited.'
+      isBlockchain
+        ? 'Credit this user\'s USDT wallet with the deposit amount?'
         : 'Are you sure you want to approve this deposit?',
       async () => {
         setProcessing(id);
@@ -214,9 +208,8 @@ const Deposits = () => {
           const response = isBlockchain
             ? await adminApi.approveBlockchainDeposit(id)
             : await adminApi.approveDeposit(id);
-          
           if (response.success) {
-            showToast.success(isBlockchain ? 'Blockchain deposit approved and credited successfully' : 'Deposit approved successfully');
+            showToast.success(isBlockchain ? 'Blockchain deposit approved and credited' : 'Deposit approved successfully');
             loadDeposits();
           } else {
             showToast.error(response.error || 'Failed to approve deposit');
@@ -232,10 +225,8 @@ const Deposits = () => {
   };
 
   const handleReject = async (id: string) => {
-    // Check if this is a blockchain deposit
     const deposit = deposits.find(d => d.id === id);
     const isBlockchain = deposit?.method === 'BLOCKCHAIN';
-    
     confirm(
       isBlockchain ? 'Reject Blockchain Deposit' : 'Reject Deposit',
       'Are you sure you want to reject this deposit?',
@@ -245,9 +236,8 @@ const Deposits = () => {
           const response = isBlockchain
             ? await adminApi.rejectBlockchainDeposit(id)
             : await adminApi.rejectDeposit(id);
-          
           if (response.success) {
-            showToast.success(isBlockchain ? 'Blockchain deposit rejected successfully' : 'Deposit rejected successfully');
+            showToast.success('Deposit rejected successfully');
             loadDeposits();
           } else {
             showToast.error(response.error || 'Failed to reject deposit');
@@ -281,44 +271,28 @@ const Deposits = () => {
       showToast.error('Please select at least one deposit to approve');
       return;
     }
-
     const hasBlockchain = deposits.some(d => selectedIds.includes(d.id) && d.method === 'BLOCKCHAIN');
-
     confirm(
       'Approve Selected Deposits',
-      `Are you sure you want to approve ${selectedIds.length} deposit(s)?${hasBlockchain ? ' This includes blockchain deposits that will credit user balances.' : ''}`,
+      `Approve ${selectedIds.length} deposit(s)?${hasBlockchain ? ' Blockchain deposits will credit user USDT balance.' : ''}`,
       async () => {
         setBulkProcessing(true);
-
         let successCount = 0;
         let failCount = 0;
-
         for (const id of selectedIds) {
           try {
             const deposit = deposits.find(d => d.id === id);
-            const isBlockchain = deposit?.method === 'BLOCKCHAIN';
-            
-            const response = isBlockchain
+            const response = deposit?.method === 'BLOCKCHAIN'
               ? await adminApi.approveBlockchainDeposit(id)
               : await adminApi.approveDeposit(id);
-            
-            if (response.success) {
-              successCount++;
-            } else {
-              failCount++;
-            }
-          } catch (error) {
+            if (response.success) successCount++;
+            else failCount++;
+          } catch {
             failCount++;
           }
         }
-
-        if (successCount > 0) {
-          showToast.success(`${successCount} deposit(s) approved successfully`);
-        }
-        if (failCount > 0) {
-          showToast.error(`${failCount} deposit(s) failed to approve`);
-        }
-
+        if (successCount > 0) showToast.success(`${successCount} deposit(s) approved`);
+        if (failCount > 0) showToast.error(`${failCount} failed`);
         setBulkProcessing(false);
         loadDeposits();
       },
@@ -331,79 +305,32 @@ const Deposits = () => {
       showToast.error('Please select at least one deposit to reject');
       return;
     }
-
     confirm(
       'Reject Selected Deposits',
-      `Are you sure you want to reject ${selectedIds.length} deposit(s)?`,
+      `Reject ${selectedIds.length} deposit(s)?`,
       async () => {
         setBulkProcessing(true);
-
         let successCount = 0;
         let failCount = 0;
-
         for (const id of selectedIds) {
           try {
             const deposit = deposits.find(d => d.id === id);
-            const isBlockchain = deposit?.method === 'BLOCKCHAIN';
-            
-            const response = isBlockchain
+            const response = deposit?.method === 'BLOCKCHAIN'
               ? await adminApi.rejectBlockchainDeposit(id)
               : await adminApi.rejectDeposit(id);
-            
-            if (response.success) {
-              successCount++;
-            } else {
-              failCount++;
-            }
-          } catch (error) {
+            if (response.success) successCount++;
+            else failCount++;
+          } catch {
             failCount++;
           }
         }
-
-        if (successCount > 0) {
-          showToast.success(`${successCount} deposit(s) rejected successfully`);
-        }
-        if (failCount > 0) {
-          showToast.error(`${failCount} deposit(s) failed to reject`);
-        }
-
+        if (successCount > 0) showToast.success(`${successCount} deposit(s) rejected`);
+        if (failCount > 0) showToast.error(`${failCount} failed`);
         setBulkProcessing(false);
         loadDeposits();
       },
       'danger'
     );
-  };
-
-  const handleProcessByTxHash = async () => {
-    const txHash = processTxHash.trim();
-    if (!txHash || !/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
-      showToast.error('Enter a valid transaction hash (0x + 64 hex characters)');
-      return;
-    }
-    setProcessByTxHashLoading(true);
-    try {
-      const response = await adminApi.processDepositByTxHash({
-        txHash,
-        network: processNetwork || undefined,
-        userId: processUserId.trim() || undefined,
-      });
-      if (response.success) {
-        const data = response.data as { processed?: number };
-        showToast.success(
-          data.processed
-            ? `Deposit processed and credited (${data.processed} record(s))`
-            : 'Request completed (no new record created)'
-        );
-        setProcessTxHash('');
-        loadDeposits();
-      } else {
-        showToast.error((response as any).error || 'Failed to process deposit');
-      }
-    } catch (error) {
-      showToast.error('Failed to process deposit by tx hash');
-    } finally {
-      setProcessByTxHashLoading(false);
-    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -460,60 +387,6 @@ const Deposits = () => {
                 ✗ Reject All
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Process deposit by tx hash (when viewing PENDING) */}
-      {filter === 'PENDING' && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-          <h3 className="text-sm font-semibold text-amber-800 mb-2">Credit deposit by transaction hash</h3>
-          <p className="text-xs text-amber-700 mb-3">
-            If a user&apos;s on-chain deposit succeeded but did not appear below, paste the transaction hash to create and credit the deposit.
-          </p>
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="flex-1 min-w-[200px]">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Transaction hash</label>
-              <input
-                type="text"
-                value={processTxHash}
-                onChange={(e) => setProcessTxHash(e.target.value)}
-                placeholder="0x..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"
-              />
-            </div>
-            <div className="w-32">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Network</label>
-              <select
-                value={processNetwork}
-                onChange={(e) => setProcessNetwork(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-              >
-                <option value="sepolia">Sepolia</option>
-                <option value="ethereum">Ethereum</option>
-                <option value="bsc">BSC</option>
-                <option value="polygon">Polygon</option>
-              </select>
-            </div>
-            <div className="w-48">
-              <label className="block text-xs font-medium text-gray-600 mb-1">User ID (optional)</label>
-              <input
-                type="text"
-                value={processUserId}
-                onChange={(e) => setProcessUserId(e.target.value)}
-                placeholder="Leave empty to detect"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={handleProcessByTxHash}
-              disabled={processByTxHashLoading}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 text-sm font-semibold"
-            >
-              {processByTxHashLoading && <LoadingSpinner size="sm" />}
-              {processByTxHashLoading ? 'Processing...' : 'Credit this tx'}
-            </button>
           </div>
         </div>
       )}

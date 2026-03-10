@@ -35,7 +35,7 @@ Two paths:
 ### processTransfer (shared)
 
 - If `DepositWalletTransaction` already exists for `txHash`: update pending status; if status is CONFIRMED and not yet credited → `creditUserBalance(...)`.
-- If new: create `DepositWalletTransaction` (with `network`, `tokenAddress`), mark pending as CONFIRMED; if amount &lt; 100 USDT → auto-credit via `creditUserBalance`; else status PENDING (admin approval).
+- If new: create `DepositWalletTransaction` (with `network`, `tokenAddress`), mark as CONFIRMED and always credit via `creditUserBalance` (no admin approval).
 
 ---
 

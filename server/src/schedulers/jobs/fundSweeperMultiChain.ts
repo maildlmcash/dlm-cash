@@ -1,6 +1,14 @@
 import { ethers } from 'ethers';
 import { prisma } from '../../lib/prisma';
-import { decryptPrivateKey, getUsdtBalance } from '../../utils/evmWallet';
+import { decryptPrivateKey } from '../../utils/evmWallet';
+import { creditUserBalance } from '../../utils/blockchainMonitor';
+
+// ERC20 ABI: transfer with no return (USDT and some tokens don't return bool)
+const ERC20_ABI = [
+  'function transfer(address to, uint256 amount)',
+  'function balanceOf(address owner) view returns (uint256)',
+  'function decimals() view returns (uint8)',
+];
 
 // Default network configurations (same as controller)
 const DEFAULT_NETWORKS = [
@@ -12,7 +20,7 @@ const DEFAULT_NETWORKS = [
     explorerUrl: 'https://sepolia.etherscan.io',
     tokenAddress: '0xf37b0D267B05b16eA490134487fc4FAc2e3eD2a6',
     poolAddress: '0x2196f8f2129b241a6D44830302Ab5B1eCA1d0f79',
-    tokenDecimals: 18,
+    tokenDecimals: 6, // tUSDT uses 6 like mainnet USDT
     isActive: true,
     withdrawEnabled: true,
     depositEnabled: true,
@@ -134,6 +142,15 @@ export const sweepDepositWalletsMultiChain = async () => {
       const provider = new ethers.JsonRpcProvider(network.rpcUrl);
       const adminWallet = new ethers.Wallet(adminPrivateKey, provider);
 
+      // Resolve token decimals from contract (avoids config vs chain mismatch)
+      let tokenDecimals = network.tokenDecimals;
+      try {
+        const tokenForDecimals = new ethers.Contract(network.tokenAddress, ERC20_ABI, provider);
+        tokenDecimals = await tokenForDecimals.decimals();
+      } catch {
+        // use config fallback
+      }
+
       let networkSweptCount = 0;
       let networkSweptAmount = 0;
 
@@ -141,9 +158,11 @@ export const sweepDepositWalletsMultiChain = async () => {
       for (const user of users) {
         try {
           const walletAddress = user.depositWalletAddress!;
-          
-          // Check USDT balance
-          const balance = await getUsdtBalance(walletAddress, network.tokenAddress, provider);
+
+          // Get raw balance and human-readable amount using chain decimals
+          const tokenContractRead = new ethers.Contract(network.tokenAddress, ERC20_ABI, provider);
+          const rawBalance = await tokenContractRead.balanceOf(walletAddress);
+          const balance = ethers.formatUnits(rawBalance, tokenDecimals);
           const balanceNum = parseFloat(balance);
 
           if (balanceNum < MIN_SWEEP_AMOUNT) {
@@ -180,31 +199,25 @@ export const sweepDepositWalletsMultiChain = async () => {
             }
           }
 
-          // Transfer tokens to pool
-          const erc20Abi = [
-            'function transfer(address to, uint256 amount) returns (bool)',
-          ];
-
+          // Transfer tokens to pool (use raw balance to avoid decimals/rounding issues)
           const tokenContract = new ethers.Contract(
             network.tokenAddress,
-            erc20Abi,
+            ERC20_ABI,
             depositWallet
           );
 
-          const amountInWei = ethers.parseUnits(balance, network.tokenDecimals);
-          
           console.log(`   🔄 Sweeping to pool...`);
           try {
             const gasLimit = Number(process.env.ERC20_TRANSFER_GAS_LIMIT) || 100_000;
-            const tx = await tokenContract.transfer(network.poolAddress, amountInWei, {
+            const tx = await tokenContract.transfer(network.poolAddress, rawBalance, {
               gasLimit,
             });
             console.log(`   ⏳ Waiting for sweep transaction confirmation...`);
             const receipt = await tx.wait();
-              console.log(`   ✅ Swept! TX: ${tx.hash.slice(0, 20)}...`);
+            console.log(`   ✅ Swept! TX: ${tx.hash.slice(0, 20)}...`);
 
-            // Log to database
-            await prisma.depositWalletTransaction.create({
+            // Create sweep record then credit user's USDT wallet (so dashboard balance updates)
+            const depositTx = await prisma.depositWalletTransaction.create({
               data: {
                 userId: user.id,
                 txHash: tx.hash,
@@ -217,9 +230,28 @@ export const sweepDepositWalletsMultiChain = async () => {
                 blockNumber: BigInt(receipt.blockNumber),
                 blockTimestamp: new Date(),
                 status: 'SWEPT',
-                credited: true,
+                credited: false,
               },
             });
+            // Only credit if monitor didn't already credit this deposit (same user, same amount, incoming tx in last 24h)
+            const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+            const alreadyCredited = await prisma.depositWalletTransaction.findFirst({
+              where: {
+                userId: user.id,
+                credited: true,
+                status: { not: 'SWEPT' },
+                amount: balance,
+                createdAt: { gte: oneDayAgo },
+              },
+            });
+            if (!alreadyCredited) {
+              await creditUserBalance(depositTx.id, user.id, balanceNum);
+            } else {
+              await prisma.depositWalletTransaction.update({
+                where: { id: depositTx.id },
+                data: { credited: true, creditedAt: new Date() },
+              });
+            }
           } catch (sweepError: any) {
             console.error(`   ❌ Sweep transaction failed: ${sweepError.message}`);
             continue; // Skip this wallet

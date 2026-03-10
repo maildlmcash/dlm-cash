@@ -748,7 +748,7 @@ class AdminApiService {
     return this.request('/admin/deposit/settings');
   }
 
-  async saveDepositSettings(data: { autoCreditThreshold: number }) {
+  async saveDepositSettings(data: { autoCreditThreshold?: number; autoCreditThresholdUSDT?: number }) {
     return this.request('/admin/deposit/settings', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -809,10 +809,16 @@ class AdminApiService {
     return this.request('/admin/blockchain/deposits/pending');
   }
 
-  async processDepositByTxHash(data: { txHash: string; network?: string; userId?: string }) {
-    return this.request('/admin/blockchain/deposits/process-by-txhash', {
+  async approveBlockchainDeposit(transactionId: string) {
+    return this.request(`/admin/blockchain/deposits/${transactionId}/approve`, {
       method: 'POST',
-      body: JSON.stringify(data),
+    });
+  }
+
+  async rejectBlockchainDeposit(transactionId: string, reason?: string) {
+    return this.request(`/admin/blockchain/deposits/${transactionId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
     });
   }
 

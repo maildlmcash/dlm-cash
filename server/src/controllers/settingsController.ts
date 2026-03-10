@@ -298,27 +298,30 @@ export const saveBreakdownSettings = async (
   }
 };
 
-// Get deposit settings (threshold)
+// Get deposit settings (thresholds for INR and USDT)
 export const getDepositSettings = async (
   _req: AuthRequest,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const thresholdSetting = await prisma.setting.findUnique({
-      where: { key: 'deposit_autoCreditThreshold' },
-    });
+    const [inrSetting, usdtSetting] = await Promise.all([
+      prisma.setting.findUnique({ where: { key: 'deposit_autoCreditThreshold' } }),
+      prisma.setting.findUnique({ where: { key: 'deposit_autoCreditThresholdUSDT' } }),
+    ]);
 
-    const autoCreditThreshold = thresholdSetting
-      ? (typeof thresholdSetting.value === 'string'
-          ? JSON.parse(thresholdSetting.value)
-          : thresholdSetting.value)
+    const autoCreditThreshold = inrSetting
+      ? (typeof inrSetting.value === 'string' ? JSON.parse(inrSetting.value) : inrSetting.value)
       : 0;
+    const autoCreditThresholdUSDT = usdtSetting
+      ? (typeof usdtSetting.value === 'string' ? JSON.parse(usdtSetting.value) : usdtSetting.value)
+      : 100;
 
     successResponse(
       res,
       {
         autoCreditThreshold: Number(autoCreditThreshold),
+        autoCreditThresholdUSDT: Number(autoCreditThresholdUSDT),
       },
       'Deposit settings retrieved successfully'
     );
@@ -327,28 +330,44 @@ export const getDepositSettings = async (
   }
 };
 
-// Save deposit settings (threshold)
+// Save deposit settings (thresholds for INR and USDT)
 export const saveDepositSettings = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const { autoCreditThreshold } = req.body;
+    const { autoCreditThreshold, autoCreditThresholdUSDT } = req.body;
 
     if (autoCreditThreshold !== undefined && autoCreditThreshold < 0) {
-      throw new AppError('Auto-credit threshold must be non-negative', 400);
+      throw new AppError('INR auto-credit threshold must be non-negative', 400);
+    }
+    if (autoCreditThresholdUSDT !== undefined && autoCreditThresholdUSDT < 0) {
+      throw new AppError('USDT auto-credit threshold must be non-negative', 400);
     }
 
-    await prisma.setting.upsert({
-      where: { key: 'deposit_autoCreditThreshold' },
-      update: { value: Number(autoCreditThreshold) },
-      create: {
-        key: 'deposit_autoCreditThreshold',
-        value: Number(autoCreditThreshold),
-        group: 'deposit',
-      },
-    });
+    if (autoCreditThreshold !== undefined) {
+      await prisma.setting.upsert({
+        where: { key: 'deposit_autoCreditThreshold' },
+        update: { value: Number(autoCreditThreshold) },
+        create: {
+          key: 'deposit_autoCreditThreshold',
+          value: Number(autoCreditThreshold),
+          group: 'deposit',
+        },
+      });
+    }
+    if (autoCreditThresholdUSDT !== undefined) {
+      await prisma.setting.upsert({
+        where: { key: 'deposit_autoCreditThresholdUSDT' },
+        update: { value: Number(autoCreditThresholdUSDT) },
+        create: {
+          key: 'deposit_autoCreditThresholdUSDT',
+          value: Number(autoCreditThresholdUSDT),
+          group: 'deposit',
+        },
+      });
+    }
 
     successResponse(res, null, 'Deposit settings saved successfully');
   } catch (error) {

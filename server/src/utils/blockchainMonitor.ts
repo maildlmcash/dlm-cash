@@ -214,17 +214,15 @@ async function processTransfer(
         data: { status: 'CONFIRMED' },
       });
 
-      // If exists and not credited, only credit if status is CONFIRMED (not PENDING)
+      // If exists and not credited: only auto-credit if CONFIRMED; PENDING waits for admin
       if (!existing.credited) {
         if (existing.status === 'PENDING') {
           if (!isDev) console.log(`⏳ Transaction is PENDING admin approval - skipping auto-credit`);
-          return false; // Skip - waiting for admin approval
+          return false;
         }
-
-        // Status is CONFIRMED but not yet credited - credit it now
-        console.log(`💳 Attempting to credit existing CONFIRMED transaction...`);
+        console.log(`💳 Crediting existing CONFIRMED transaction...`);
         await creditUserBalance(existing.id, userId, parseFloat(transfer.amount));
-        return true; // Successfully credited
+        return true;
       }
 
       // Already credited - verify wallet balance is correct
@@ -239,15 +237,15 @@ async function processTransfer(
       return false; // Already processed
     }
 
-    // Create new transaction record
+    // Create new transaction record; auto-credit or PENDING based on threshold
     const amount = parseFloat(transfer.amount);
     const thresholdSetting = await prisma.setting.findUnique({
       where: { key: 'deposit_autoCreditThresholdUSDT' },
     });
-    const autoCreditThreshold = thresholdSetting
+    const autoCreditThresholdUSDT = thresholdSetting
       ? (typeof thresholdSetting.value === 'string' ? parseFloat(JSON.parse(thresholdSetting.value)) : Number(thresholdSetting.value))
       : 100;
-    const requiresApproval = amount >= autoCreditThreshold;
+    const requiresApproval = amount >= autoCreditThresholdUSDT;
 
     const depositTx = await prisma.depositWalletTransaction.create({
       data: {
@@ -266,13 +264,11 @@ async function processTransfer(
       },
     });
 
-    // Remove/update pending transaction if exists
     await prisma.pendingDepositTransaction.updateMany({
       where: { txHash: transfer.txHash, status: 'PENDING' },
       data: { status: 'CONFIRMED' },
     });
 
-    // Only auto-credit if below threshold
     if (!requiresApproval) {
       await creditUserBalance(depositTx.id, userId, amount);
       console.log(`✅ Auto-credited ${transfer.amount} ${transfer.tokenSymbol} to user ${userId} (Tx: ${transfer.txHash.slice(0, 10)}...)`);

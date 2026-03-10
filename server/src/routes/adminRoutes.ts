@@ -28,7 +28,6 @@ import {
   monitorBlockchainDeposits,
   recalculateDepositBalances,
   getPendingBlockchainDeposits,
-  processDepositByTxHash,
   approveBlockchainDeposit,
   rejectBlockchainDeposit,
   getAllTransactions,
@@ -212,11 +211,10 @@ router.post('/currency/fetch-moralis', authorize('SUPER_ADMIN', 'ADMIN'), fetchM
 router.post('/currency/fetch-api', authorize('SUPER_ADMIN', 'ADMIN'), fetchRateFromApi);
 router.get('/currency/logs', authorize('SUPER_ADMIN', 'ADMIN'), getCurrencyRateLogs);
 
-// Blockchain Monitoring
+// Blockchain Monitoring (deposits below threshold auto-credit; above threshold need admin approve)
 router.post('/blockchain/monitor', authorize('SUPER_ADMIN', 'ADMIN'), monitorBlockchainDeposits);
 router.post('/blockchain/recalculate-balances', authorize('SUPER_ADMIN', 'ADMIN'), recalculateDepositBalances);
 router.get('/blockchain/deposits/pending', authorize('SUPER_ADMIN', 'ADMIN'), getPendingBlockchainDeposits);
-router.post('/blockchain/deposits/process-by-txhash', authorize('SUPER_ADMIN', 'ADMIN'), processDepositByTxHash);
 router.post('/blockchain/deposits/:transactionId/approve', authorize('SUPER_ADMIN', 'ADMIN'), approveBlockchainDeposit);
 router.post('/blockchain/deposits/:transactionId/reject', authorize('SUPER_ADMIN', 'ADMIN'), rejectBlockchainDeposit);
 

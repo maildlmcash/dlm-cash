@@ -61,6 +61,7 @@ const Settings = () => {
     searchTerm: ''
   });
   const [depositThreshold, setDepositThreshold] = useState<number>(0);
+  const [depositThresholdUSDT, setDepositThresholdUSDT] = useState<number>(100);
   const [loadingDepositSettings, setLoadingDepositSettings] = useState(false);
   const [platformFeeSettings, setPlatformFeeSettings] = useState({
     minDepositUSDT: 10,
@@ -156,7 +157,9 @@ const Settings = () => {
     try {
       const response = await adminApi.getDepositSettings();
       if (response.success && response.data) {
-        setDepositThreshold((response.data as any).autoCreditThreshold || 0);
+        const data = response.data as any;
+        setDepositThreshold(data.autoCreditThreshold ?? 0);
+        setDepositThresholdUSDT(data.autoCreditThresholdUSDT ?? 100);
       }
     } catch (error) {
       showToast.error('Failed to load deposit settings');
@@ -378,7 +381,10 @@ const Settings = () => {
 
   const handleSaveDepositSettings = async () => {
     try {
-      const response = await adminApi.saveDepositSettings({ autoCreditThreshold: depositThreshold });
+      const response = await adminApi.saveDepositSettings({
+        autoCreditThreshold: depositThreshold,
+        autoCreditThresholdUSDT: depositThresholdUSDT,
+      });
       if (response.success) {
         showToast.success('Deposit settings saved successfully');
       } else {
@@ -1113,13 +1119,13 @@ const Settings = () => {
                     <LoadingSpinner size="md" />
                   </div>
                 ) : (
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <div className="mb-4">
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-6">
+                    <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Auto-Credit Threshold (INR)
                       </label>
                       <p className="text-xs text-gray-500 mb-2">
-                        Deposits below this amount will be automatically credited to user's wallet. Deposits above this amount will require admin approval.
+                        INR deposits below this amount are auto-credited. Above this amount requires admin approval.
                       </p>
                       <input
                         type="number"
@@ -1128,7 +1134,24 @@ const Settings = () => {
                         min="0"
                         step="0.01"
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                        placeholder="Enter threshold amount"
+                        placeholder="e.g. 50000"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Auto-Credit Threshold (USDT / Blockchain)
+                      </label>
+                      <p className="text-xs text-gray-500 mb-2">
+                        USDT/blockchain deposits below this amount are auto-credited. At or above this amount requires admin approval.
+                      </p>
+                      <input
+                        type="number"
+                        value={depositThresholdUSDT}
+                        onChange={(e) => setDepositThresholdUSDT(parseFloat(e.target.value) ?? 100)}
+                        min="0"
+                        step="0.01"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        placeholder="e.g. 100"
                       />
                     </div>
                     <button

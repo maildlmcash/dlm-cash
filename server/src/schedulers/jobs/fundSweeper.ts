@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import { prisma } from '../../lib/prisma';
 import { decryptPrivateKey, getUsdtBalance } from '../../utils/evmWallet';
+import { creditUserBalance } from '../../utils/blockchainMonitor';
 
 // Configuration from environment
 const SEPOLIA_RPC_URL = process.env.SEPOLIA_RPC_URL || 'https://ethereum-sepolia.publicnode.com';
@@ -127,8 +128,8 @@ export const sweepDepositWallets = async () => {
         sweptCount++;
         totalSwept += balanceNum;
 
-        // Optional: Log sweep transaction in database
-        await prisma.depositWalletTransaction.create({
+        // Log sweep transaction and credit user's USDT wallet so dashboard balance updates
+        const depositTx = await prisma.depositWalletTransaction.create({
           data: {
             userId: user.id,
             txHash: tx.hash,
@@ -140,9 +141,27 @@ export const sweepDepositWallets = async () => {
             blockNumber: BigInt(receipt.blockNumber),
             blockTimestamp: new Date(),
             status: 'SWEPT',
-            credited: true, // Already moved to pool
+            credited: false,
           },
         });
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const alreadyCredited = await prisma.depositWalletTransaction.findFirst({
+          where: {
+            userId: user.id,
+            credited: true,
+            status: { not: 'SWEPT' },
+            amount: balance,
+            createdAt: { gte: oneDayAgo },
+          },
+        });
+        if (!alreadyCredited) {
+          await creditUserBalance(depositTx.id, user.id, balanceNum);
+        } else {
+          await prisma.depositWalletTransaction.update({
+            where: { id: depositTx.id },
+            data: { credited: true, creditedAt: new Date() },
+          });
+        }
 
       } catch (error: any) {
         console.error(`❌ Error sweeping wallet ${user.depositWalletAddress}:`, error.message);
