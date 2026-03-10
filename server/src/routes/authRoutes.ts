@@ -2,6 +2,9 @@ import { Router } from 'express';
 import {
   register,
   registerValidation,
+  validateReferral,
+  startRegistration,
+  verifyRegistrationOtp,
   login,
   loginValidation,
   getProfile,
@@ -25,6 +28,9 @@ import { validate } from '../middleware/validator';
 const router = Router();
 
 router.post('/register',  validate(registerValidation), register);
+router.post('/register/start', startRegistration);
+router.post('/register/verify-otp', verifyRegistrationOtp);
+router.post('/validate-referral', validateReferral);
 router.post('/login', validate(loginValidation), login);
 router.post('/verify-otp',  validate(verifyOtpValidation), verifyOTP);
 router.post('/resend-otp',  validate(resendOtpValidation), resendOTP);

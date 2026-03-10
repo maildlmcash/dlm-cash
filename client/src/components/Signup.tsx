@@ -2,36 +2,61 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { apiService } from "../services/api";
-import { detectInputType, validatePassword } from "../utils/validation";
+import { detectInputType } from "../utils/validation";
 
 const Signup = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+
+  const [fullName, setFullName] = useState("");
   const [input, setInput] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [referralCode, setReferralCode] = useState("");
+  const [referralValid, setReferralValid] = useState<boolean | null>(null);
+  const [referralPreview, setReferralPreview] = useState("");
   const [isReferralFromUrl, setIsReferralFromUrl] = useState(false);
   const [countryCode, setCountryCode] = useState("91");
   const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [step, setStep] = useState<"form" | "otp">("form");
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [otp, setOtp] = useState("");
 
   // Extract referral code from URL query parameter
   useEffect(() => {
-    const refCode = searchParams.get('ref');
+    const refCode = searchParams.get("ref");
     if (refCode) {
-      setReferralCode(refCode.toUpperCase());
+      setReferralCode(refCode);
       setIsReferralFromUrl(true);
     }
   }, [searchParams]);
 
   const inputType = detectInputType(input);
 
-  const handleSignup = async () => {
+  const handleValidateReferral = async () => {
+    setReferralValid(null);
+    setReferralPreview("");
+
+    const value = referralCode.trim();
+    if (!value) return;
+
+    const res = await apiService.validateReferral(value);
+    if (res.success && res.data?.valid) {
+      setReferralValid(true);
+      setReferralPreview(res.data.previewName || "");
+    } else {
+      setReferralValid(false);
+      setReferralPreview("");
+    }
+  };
+
+  const handleStartRegistration = async () => {
     setError('');
+
+    if (!fullName.trim()) {
+      setError("Please enter your full name");
+      return;
+    }
 
     if (!input.trim()) {
       setError('Please enter your email or phone number');
@@ -43,20 +68,42 @@ const Signup = () => {
       return;
     }
 
-    if (!password) {
-      setError('Please enter a password');
-      return;
-    }
+    // Mobile number length validation based on country code
+    if (inputType === 'mobile') {
+      const raw = input.trim().replace(/\s+/g, '');
+      const digits = raw.replace(/[^0-9]/g, '');
+      let validLen = true;
 
-    const passwordValidation = validatePassword(password);
-    if (!passwordValidation.valid) {
-      setError(passwordValidation.message || 'Invalid password');
-      return;
-    }
+      switch (countryCode) {
+        case '91': // India
+        case '1':  // USA / Canada
+        case '44': // UK
+        case '92': // Pakistan
+        case '81': // Japan
+          validLen = digits.length === 10;
+          break;
+        case '61': // Australia
+        case '971': // UAE
+          validLen = digits.length === 9;
+          break;
+        case '49': // Germany
+          validLen = digits.length === 10 || digits.length === 11;
+          break;
+        case '33': // France
+          validLen = digits.length === 9;
+          break;
+        case '65': // Singapore
+          validLen = digits.length === 8;
+          break;
+        default:
+          // For any other code, require at least 8 digits
+          validLen = digits.length >= 8;
+      }
 
-    if (password !== confirmPassword) {
-      setError('Passwords do not match');
-      return;
+      if (!validLen) {
+        setError('Invalid Mobile Number Length');
+        return;
+      }
     }
 
     if (!agreed) {
@@ -67,35 +114,59 @@ const Signup = () => {
     setLoading(true);
 
     try {
-      const signupPayload: any = { password };
+      const payload: any = { fullName };
 
       if (inputType === 'email') {
-        signupPayload.email = input.trim();
+        payload.email = input.trim();
       } else {
         const phoneNumber = input.trim().replace(/\s+/g, '');
-        signupPayload.phone = `+${countryCode}${phoneNumber}`;
+        payload.phone = `+${countryCode}${phoneNumber}`;
       }
 
       if (referralCode.trim()) {
-        signupPayload.referralCode = referralCode.trim().toUpperCase();
+        payload.referral = referralCode.trim();
       }
 
-      const response = await apiService.signup(signupPayload);
-
+      const response = await apiService.startRegistration(payload);
       if (response.success && response.data) {
-        if (inputType === 'email') {
-          navigate('/verify-email', { state: { email: input.trim() } });
-        } else {
-          const phoneNumber = input.trim().replace(/\s+/g, '');
-          navigate('/verify-mobile', {
-            state: { phone: `+${countryCode}${phoneNumber}`, countryCode },
-          });
-        }
+        setPendingId(response.data.pendingId);
+        setStep("otp");
       } else {
-        setError(response.error || 'Failed to create account. Please try again.');
+        setError(response.error || 'Failed to start registration. Please try again.');
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    setError("");
+    if (!pendingId) {
+      setError("Registration session not found. Please start again.");
+      return;
+    }
+    if (!otp.trim()) {
+      setError("Please enter the OTP");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await apiService.verifyRegistrationOtp({
+        pendingId,
+        otp: otp.trim(),
+      });
+      if (response.success && response.data) {
+        localStorage.setItem("authToken", response.data.token);
+        localStorage.setItem("user", JSON.stringify(response.data.user));
+        navigate("/dashboard", { replace: true });
+      } else {
+        setError(response.error || "Invalid OTP. Please try again.");
+      }
+    } catch (err) {
+      setError("An unexpected error occurred. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -162,6 +233,33 @@ const Signup = () => {
               </p>
             </div>
 
+            {/* Full Name */}
+            {step === "form" && (
+              <div className="mb-4">
+                <label
+                  className="block text-sm font-semibold mb-2"
+                  style={{ color: "#09090b" }}
+                >
+                  Full name
+                </label>
+                <input
+                  type="text"
+                  value={fullName}
+                  onChange={(e) => {
+                    setFullName(e.target.value);
+                    setError("");
+                  }}
+                  placeholder="Enter your full name"
+                  className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-black transition-all"
+                  style={{
+                    fontFamily: 'Inter, "Inter Placeholder", sans-serif',
+                    fontSize: "13px",
+                    color: "#09090b",
+                  }}
+                />
+              </div>
+            )}
+
             {/* Email/Phone Input */}
             <div className="mb-4">
               <label 
@@ -181,14 +279,16 @@ const Signup = () => {
                       fontSize: '13px'
                     }}
                   >
-                    <option value="1">+1 (US)</option>
+                    <option value="91">+91 (India)</option>
+                    <option value="1">+1 (USA / Canada)</option>
                     <option value="44">+44 (UK)</option>
-                    <option value="91">+91 (IN)</option>
-                    <option value="86">+86 (CN)</option>
-                    <option value="81">+81 (JP)</option>
-                    <option value="49">+49 (DE)</option>
-                    <option value="33">+33 (FR)</option>
-                    <option value="61">+61 (AU)</option>
+                    <option value="61">+61 (Australia)</option>
+                    <option value="971">+971 (UAE)</option>
+                    <option value="92">+92 (Pakistan)</option>
+                    <option value="49">+49 (Germany)</option>
+                    <option value="33">+33 (France)</option>
+                    <option value="65">+65 (Singapore)</option>
+                    <option value="81">+81 (Japan)</option>
                   </select>
                 </div>
               )}
@@ -206,136 +306,80 @@ const Signup = () => {
                   fontSize: '13px',
                   color: '#09090b'
                 }}
+                disabled={step === "otp"}
               />
             </div>
 
-            {/* Password Input */}
-            <div className="mb-4">
-              <label 
-                className="block text-sm font-semibold mb-2"
-                style={{ color: '#09090b' }}
-              >
-                Password
-              </label>
-              <div className="relative">
+            {/* OTP Input (Step 2) */}
+            {step === "otp" && (
+              <div className="mb-4">
+                <label
+                  className="block text-sm font-semibold mb-2"
+                  style={{ color: "#09090b" }}
+                >
+                  Enter OTP
+                </label>
                 <input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
+                  type="text"
+                  value={otp}
                   onChange={(e) => {
-                    setPassword(e.target.value);
-                    setError('');
+                    setOtp(e.target.value);
+                    setError("");
                   }}
-                  placeholder="Create a password"
-                  className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-black transition-all pr-10"
+                  placeholder="6-digit code"
+                  className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-black transition-all"
                   style={{
                     fontFamily: 'Inter, "Inter Placeholder", sans-serif',
-                    fontSize: '13px',
-                    color: '#09090b'
+                    fontSize: "13px",
+                    color: "#09090b",
                   }}
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  {showPassword ? (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
-                    </svg>
-                  ) : (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                      <line x1="1" y1="1" x2="23" y2="23"/>
-                    </svg>
-                  )}
-                </button>
               </div>
-            </div>
+            )}
 
-            {/* Confirm Password Input */}
+            {/* Referral Input */}
             <div className="mb-4">
               <label 
                 className="block text-sm font-semibold mb-2"
                 style={{ color: '#09090b' }}
               >
-                Confirm password
+                Referral (Optional)
               </label>
-              <div className="relative">
+              <div className="flex items-center gap-2">
                 <input
-                  type={showConfirmPassword ? "text" : "password"}
-                  value={confirmPassword}
+                  type="text"
+                  value={referralCode}
                   onChange={(e) => {
-                    setConfirmPassword(e.target.value);
-                    setError('');
+                    if (!isReferralFromUrl) {
+                      setReferralCode(e.target.value);
+                      setReferralValid(null);
+                      setReferralPreview("");
+                    }
                   }}
-                  placeholder="Confirm your password"
-                  className={`w-full px-3 py-2 bg-white border rounded-lg focus:ring-2 focus:ring-black focus:border-black transition-all pr-10 ${
-                    password !== confirmPassword && confirmPassword ? 'border-red-300' : 'border-gray-300'
+                  onBlur={handleValidateReferral}
+                  placeholder="Referral code / email / phone"
+                  maxLength={50}
+                  disabled={isReferralFromUrl}
+                  className={`flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-black transition-all ${
+                    isReferralFromUrl ? "bg-gray-100 cursor-not-allowed" : "bg-white"
                   }`}
                   style={{
                     fontFamily: 'Inter, "Inter Placeholder", sans-serif',
-                    fontSize: '13px',
-                    color: '#09090b'
+                    fontSize: "13px",
+                    color: "#09090b",
                   }}
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  {showConfirmPassword ? (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
-                    </svg>
-                  ) : (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                      <line x1="1" y1="1" x2="23" y2="23"/>
-                    </svg>
-                  )}
-                </button>
+                {referralValid === true && (
+                  <span className="text-green-600 text-xs font-semibold">
+                    {referralPreview || "✓"}
+                  </span>
+                )}
+                {referralValid === false && (
+                  <span className="text-red-600 text-xs font-semibold">
+                    Invalid
+                  </span>
+                )}
               </div>
-              {password !== confirmPassword && confirmPassword && (
-                <p className="mt-1 text-xs text-red-600">Passwords do not match</p>
-              )}
-            </div>
-
-            {/* Referral Code Input */}
-            <div className="mb-4">
-              <label 
-                className="block text-sm font-semibold mb-2"
-                style={{ color: '#09090b' }}
-              >
-                Referral code <span className="text-gray-500 text-xs font-normal">(Optional)</span>
-              </label>
-              <input
-                type="text"
-                value={referralCode}
-                onChange={(e) => {
-                  const value = e.target.value.toUpperCase().replace(/\s+/g, '');
-                  setReferralCode(value);
-                  setError('');
-                }}
-                placeholder="Enter referral code"
-                maxLength={20}
-                disabled={isReferralFromUrl}
-                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-black transition-all ${
-                  isReferralFromUrl ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
-                }`}
-                style={{
-                  fontFamily: 'Inter, "Inter Placeholder", sans-serif',
-                  fontSize: '13px',
-                  color: '#09090b'
-                }}
-              />
-              {referralCode && (
-                <p className="mt-1 text-xs text-gray-500">
-                  {isReferralFromUrl 
-                    ? 'Referral code applied from link' 
-                    : "You'll be referred by the user with this code"
-                  }
-                </p>
-              )}
             </div>
 
             {/* Error Message */}
@@ -374,9 +418,9 @@ const Signup = () => {
               </label>
             </div>
 
-            {/* Continue Button */}
+            {/* Continue / Verify Button */}
             <button
-              onClick={handleSignup}
+              onClick={step === "form" ? handleStartRegistration : handleVerifyOtp}
               disabled={loading || !agreed}
               className="w-full px-4 py-2.5 bg-black text-white rounded-lg font-semibold hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               style={{
@@ -384,7 +428,13 @@ const Signup = () => {
                 fontSize: '14px'
               }}
             >
-              {loading ? 'Creating account...' : 'Create account'}
+              {loading
+                ? step === "form"
+                  ? "Starting registration..."
+                  : "Verifying OTP..."
+                : step === "form"
+                  ? "Create account"
+                  : "Verify & continue"}
             </button>
 
             {/* Bottom Links */}

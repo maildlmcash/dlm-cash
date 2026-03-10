@@ -14,6 +14,22 @@ import { sendOTPEmail, generateOTP } from '../utils/email';
 import { generateEvmWallet, encryptPrivateKey } from '../utils/evmWallet';
 // import { sendPhoneOTP } from '../utils/otp';
 
+// Helper to resolve referrer from code/email/phone
+async function resolveReferrer(referral?: string | null) {
+  if (!referral) return null;
+
+  return prisma.user.findFirst({
+    where: {
+      OR: [
+        { referralCode: referral.trim().toUpperCase() },
+        { email: referral.toLowerCase() },
+        { phone: referral },
+      ],
+    },
+    select: { id: true, name: true },
+  });
+}
+
 export const registerValidation = [
   body('email')
     .optional()
@@ -229,6 +245,174 @@ export const register = async (
       'Registration successful. OTP sent to your email/phone',
       201
     );
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ===== New multi-step registration (pending + OTP) =====
+
+const REG_OTP_TTL_MINUTES = 10;
+
+export const validateReferral = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { referral } = req.body as { referral?: string };
+    if (!referral) {
+      successResponse(res, { valid: false }, 'No referral provided');
+      return;
+    }
+
+    const referrer = await resolveReferrer(referral);
+    if (!referrer) {
+      successResponse(res, { valid: false }, 'Invalid referral');
+      return;
+    }
+
+    const previewName = `${referrer.name?.slice(0, 3) ?? ''}***`;
+    successResponse(res, { valid: true, previewName }, 'Valid referral');
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const startRegistration = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { fullName, email, phone, referral } = req.body as {
+      fullName?: string;
+      email?: string;
+      phone?: string;
+      referral?: string;
+    };
+
+    if (!fullName?.trim()) {
+      throw new AppError('Full name is required', 400);
+    }
+
+    if ((!email && !phone) || (email && phone)) {
+      throw new AppError('Provide either email or phone (only one)', 400);
+    }
+
+    const normalizedEmail = email ? email.toLowerCase() : null;
+
+    // Prevent duplicate users
+    if (normalizedEmail) {
+      const existing = await prisma.user.findFirst({ where: { email: normalizedEmail } });
+      if (existing) throw new AppError('Email already registered', 400);
+    }
+    if (phone) {
+      const existing = await prisma.user.findFirst({ where: { phone } });
+      if (existing) throw new AppError('Mobile number already registered', 400);
+    }
+
+    const referrer = await resolveReferrer(referral);
+    const otp = generateOTP();
+    const otpExpiresAt = new Date(Date.now() + REG_OTP_TTL_MINUTES * 60 * 1000);
+
+    // Upsert pending registration by email/phone
+    const pending = await prisma.pendingRegistration.upsert({
+      where: {
+        email: normalizedEmail ?? undefined,
+        phone: phone ?? undefined,
+      } as any,
+      update: {
+        fullName,
+        referralInput: referral || null,
+        referrerId: referrer?.id || null,
+        otpCode: otp,
+        otpExpiresAt,
+        createdAt: new Date(),
+      },
+      create: {
+        fullName,
+        email: normalizedEmail,
+        phone: phone || null,
+        referralInput: referral || null,
+        referrerId: referrer?.id || null,
+        otpCode: otp,
+        otpExpiresAt,
+      },
+    });
+
+    // Send OTP via existing email helper (phone OTP can be added later)
+    if (normalizedEmail) {
+      await sendOTPEmail(normalizedEmail, otp, fullName);
+    } else if (phone) {
+      // TODO: integrate SMS provider; for now, just log
+      const maskedPhone = phone.length > 8
+        ? `${phone.substring(0, 4)}****${phone.slice(-4)}`
+        : `${phone.substring(0, 2)}****`;
+      console.log(`[PENDING REG] Phone OTP generated (not sent): ${otp} for ${maskedPhone}`);
+    }
+
+    successResponse(
+      res,
+      { pendingId: pending.id, contact: normalizedEmail || phone },
+      'OTP sent successfully'
+    );
+    return;
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const verifyRegistrationOtp = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { pendingId, otp } = req.body as { pendingId?: string; otp?: string };
+
+    if (!pendingId || !otp) {
+      throw new AppError('pendingId and otp are required', 400);
+    }
+
+    const pending = await prisma.pendingRegistration.findUnique({
+      where: { id: pendingId },
+    });
+    if (!pending) throw new AppError('Registration session not found', 400);
+
+    if (pending.otpCode !== otp) {
+      throw new AppError('Invalid OTP', 400);
+    }
+    if (pending.otpExpiresAt < new Date()) {
+      throw new AppError('OTP expired', 400);
+    }
+
+    // Create user with a random password hash (user can later set/change password)
+    const randomPassword = generateOTP(); // simple random 6-digit string
+    const passwordHash = await hashPassword(randomPassword);
+
+    const user = await prisma.user.create({
+      data: {
+        email: pending.email,
+        phone: pending.phone,
+        name: pending.fullName,
+        passwordHash,
+        isVerified: true,
+        role: 'USER',
+        status: 'ACTIVE',
+      },
+    });
+
+    await prisma.pendingRegistration.delete({ where: { id: pending.id } });
+
+    const token = generateToken(user.id, user.role);
+
+    successResponse(
+      res,
+      { token, user },
+      'Registration completed successfully'
+    );
+    return;
   } catch (error) {
     next(error);
   }

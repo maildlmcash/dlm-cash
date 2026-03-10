@@ -115,6 +115,38 @@ class ApiService {
     });
   }
 
+  // New multi-step registration: start (fullName + email/phone + referral)
+  async startRegistration(payload: {
+    fullName: string;
+    email?: string;
+    phone?: string;
+    referral?: string;
+  }): Promise<ApiResponse<{ pendingId: string; contact: string }>> {
+    return this.request('/auth/register/start', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  // New multi-step registration: verify OTP
+  async verifyRegistrationOtp(payload: {
+    pendingId: string;
+    otp: string;
+  }): Promise<ApiResponse<{ token: string; user: any }>> {
+    return this.request('/auth/register/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  // Validate referral (code/email/phone)
+  async validateReferral(referral: string): Promise<ApiResponse<{ valid: boolean; previewName?: string }>> {
+    return this.request('/auth/validate-referral', {
+      method: 'POST',
+      body: JSON.stringify({ referral }),
+    });
+  }
+
   // Verify OTP
   async verifyOTP(payload: VerifyOtpRequest): Promise<ApiResponse<{ token: string; user: any }>> {
     return this.request('/auth/verify-otp', {
