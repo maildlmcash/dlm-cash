@@ -1,0 +1,8 @@
+{
+  "owner": "maildlmcash",
+  "repo": "dlm-cash",
+  "branch": "main",
+  "html": "https://github.com/maildlmcash/dlm-cash",
+  "clone": "https://github.com/maildlmcash/dlm-cash.git",
+  "note": "Canonical home. Never create a new repo per Grok slug. Always push here."
+}
